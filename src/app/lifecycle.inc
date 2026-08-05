@@ -72,18 +72,22 @@ void setup()
                   kSpeakerShutdownPin,
                   gSpeakerReady ? "OK" : "FAILED");
 
-    startNetwork();
-    startOta();
-    syncManagedRobotConfig();
-    reportRobotStatus();
-    setupRealtimeConversation();
-    setupControlChannel();
-
     Wire.begin(kOledSdaPin, kOledSclPin);
     gOledReady = gDisplay.begin(SSD1306_SWITCHCAPVCC, kOledAddress);
     Serial.printf("[Z2 OLED] SDA GPIO%d SCL GPIO%d address=0x%02X init=%s\n",
                   kOledSdaPin, kOledSclPin, kOledAddress,
                   gOledReady ? "OK" : "FAILED");
+    startNetwork();
+    if (gWifiSetupMode) {
+        gRing.clear();
+        gRing.show();
+        showWifiSetupQr();
+    }
+    startOta();
+    syncManagedRobotConfig();
+    reportRobotStatus();
+    setupRealtimeConversation();
+    setupControlChannel();
     gLightSensorReady = gLightSensor.begin(&Wire);
     if (gLightSensorReady) {
         gLightSensor.setGain(VEML7700_GAIN_1);
@@ -98,7 +102,76 @@ void setup()
     initTofSensors();
     updateOled();
 
-    gServer.on("/", HTTP_GET, [] { gServer.send_P(200, "text/html", kControlPage); });
+    gServer.on("/", HTTP_GET, [] {
+        if (!gWifiSetupMode) {
+            gServer.send_P(200, "text/html", kControlPage);
+            return;
+        }
+        static const char kWifiSetupPage[] PROGMEM = R"HTML(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect Z2</title><style>body{font:16px system-ui;background:#0b0b0b;color:#f4f4f1;margin:0}.box{max-width:430px;margin:auto;padding:28px 20px}h1{font-size:28px}p{color:#aaa;line-height:1.5}label{display:block;margin:18px 0 7px}select,input,button{box-sizing:border-box;width:100%;padding:14px;border-radius:12px;border:1px solid #444;background:#171717;color:#fff;font:inherit}button{margin-top:20px;background:#fff;color:#111;font-weight:700}.note{font-size:13px}.hidden{display:none}.signal{color:#8fd3a3}</style></head><body><main class="box"><h1>Connect Z2</h1><p>Select your home Wi-Fi. Z2 will test it before saving it.</p><form method="post" action="/setup/wifi"><label>Nearby Wi-Fi</label><select id="network"><option value="">Scanning nearby networks…</option></select><div id="manual" class="hidden"><label>Wi-Fi name</label><input id="manualName" maxlength="32" autocomplete="off"></div><input id="ssid" name="ssid" type="hidden"><label>Password</label><input name="password" type="password" maxlength="63" autocomplete="off"><button id="connect" disabled>Connect Z2</button></form><p id="scanStatus" class="note">Looking for nearby networks…</p><p class="note">Your Wi-Fi password stays on this robot and is never sent to Kent Wynn.</p></main><script>const list=document.querySelector('#network'),ssid=document.querySelector('#ssid'),manual=document.querySelector('#manual'),manualName=document.querySelector('#manualName'),button=document.querySelector('#connect'),status=document.querySelector('#scanStatus');function choose(){const other=list.value==='__other__';manual.classList.toggle('hidden',!other);ssid.value=other?manualName.value:list.value;button.disabled=!ssid.value}list.onchange=choose;manualName.oninput=choose;fetch('/setup/networks',{cache:'no-store'}).then(r=>r.json()).then(data=>{list.innerHTML='';data.networks.forEach(n=>{const o=document.createElement('option');o.value=n.ssid;o.textContent=n.ssid+' · '+(n.rssi>-60?'Strong':n.rssi>-75?'Good':'Weak');list.append(o)});const other=document.createElement('option');other.value='__other__';other.textContent='Other network…';list.append(other);status.textContent=data.networks.length+' networks found';choose()}).catch(()=>{list.innerHTML='<option value="__other__">Enter network manually…</option>';status.textContent='Scan unavailable';choose()});</script></body></html>)HTML";
+        gServer.send_P(200, "text/html", kWifiSetupPage);
+    });
+    gServer.on("/setup/networks", HTTP_GET, [] {
+        if (!gWifiSetupMode) {
+            gServer.send(409, "application/json", "{\"detail\":\"Setup mode is not active\"}");
+            return;
+        }
+        const int found = WiFi.scanNetworks(false, true);
+        JsonDocument document;
+        JsonArray networks = document["networks"].to<JsonArray>();
+        for (int index = 0; index < found; ++index) {
+            const String ssid = WiFi.SSID(index);
+            if (ssid.isEmpty()) continue;
+            bool duplicate = false;
+            for (JsonObject item : networks)
+                if (String(item["ssid"] | "") == ssid) { duplicate = true; break; }
+            if (duplicate) continue;
+            JsonObject item = networks.add<JsonObject>();
+            item["ssid"] = ssid;
+            item["rssi"] = WiFi.RSSI(index);
+            item["secure"] = WiFi.encryptionType(index) != WIFI_AUTH_OPEN;
+        }
+        WiFi.scanDelete();
+        String payload;
+        serializeJson(document, payload);
+        gServer.send(200, "application/json", payload);
+    });
+    gServer.on("/setup/wifi", HTTP_POST, [] {
+        if (!gWifiSetupMode) {
+            gServer.send(409, "text/plain", "Wi-Fi setup mode is not active");
+            return;
+        }
+        String ssid = gServer.arg("ssid");
+        const String password = gServer.arg("password");
+        ssid.trim();
+        if (ssid.isEmpty() || ssid.length() > 32 || password.length() > 63) {
+            gServer.send(400, "text/plain", "Invalid Wi-Fi details");
+            return;
+        }
+        gRobotPreferences.putString("wifi-next-s", ssid);
+        gRobotPreferences.putString("wifi-next-p", password);
+        gServer.send(200, "text/html", "<!doctype html><meta name=viewport content='width=device-width'><style>body{font:18px system-ui;padding:30px;background:#0b0b0b;color:white}</style><h1>Z2 is connecting</h1><p>You can close this page. If the new network fails, Z2 will return to the previous network or setup mode.</p>");
+        delay(350);
+        ESP.restart();
+    });
+    gServer.on("/setup/start", HTTP_POST, [] {
+        if (gMoving) stopMotors();
+        closeRealtimeConversation("Wi-Fi setup requested");
+        gRobotPreferences.putBool("wifi-setup", true);
+        gServer.send(202, "application/json", "{\"status\":\"restarting-in-setup-mode\"}");
+        delay(350);
+        ESP.restart();
+    });
+    gServer.on("/setup/factory-reset", HTTP_POST, [] {
+        if (gMoving) stopMotors();
+        closeRealtimeConversation("factory reset requested");
+        gRobotPreferences.clear();
+        gPreferences.clear();
+        gServer.send(202, "application/json", "{\"status\":\"factory-reset\"}");
+        delay(350);
+        ESP.restart();
+    });
+    gServer.on("/generate_204", HTTP_GET, [] { gServer.sendHeader("Location", "http://192.168.4.1/", true); gServer.send(302, "text/plain", ""); });
+    gServer.on("/hotspot-detect.html", HTTP_GET, [] { gServer.sendHeader("Location", "http://192.168.4.1/", true); gServer.send(302, "text/plain", ""); });
     gServer.on("/drive", HTTP_GET, handleDrive);
     gServer.on("/power", HTTP_GET, [] {
         const bool turnOn = gServer.hasArg("state") && gServer.arg("state") == "on";
@@ -189,6 +262,9 @@ void setup()
             WiFi.status() == WL_CONNECTED || WiFi.getMode() == WIFI_AP;
         gServer.send(200, "application/json",
                      String("{\"wifi\":") + (wifiReady ? "true" : "false") +
+                     ",\"wifiSetup\":" + (gWifiSetupMode ? "true" : "false") +
+                     ",\"otaReady\":" + (gOtaReady ? "true" : "false") +
+                     ",\"firmwareVersion\":\"" + kFirmwareVersion + "\"" +
                      ",\"power\":" + (gVirtualPowerOn ? "true" : "false") +
                      ",\"chatConfigured\":" +
                      (Z2_REALTIME_ENABLED && hasConfiguredRealtimeToken() ? "true" : "false") +
@@ -344,6 +420,7 @@ void loop()
     if (gVirtualPowerOn) updateMicrophone();
 
     ArduinoOTA.handle();
+    if (gWifiSetupMode) gSetupDns.processNextRequest();
     gServer.handleClient();
     updateRealtimeConversation();
     updateControlChannel();
@@ -370,7 +447,7 @@ void loop()
             gSafetyStopActive = false;
         }
         updateAutoDrive();
-        updateRingAnimation();
+        if (!gWifiSetupMode) updateRingAnimation();
         updateOled();
         if (gMoving && millis() - gLastDriveCommandMs > kCommandTimeoutMs) {
             stopMotors();

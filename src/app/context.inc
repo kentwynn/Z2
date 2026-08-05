@@ -6,6 +6,7 @@
 #include <Adafruit_VEML7700.h>
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
+#include <DNSServer.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
 #include <VL53L0X.h>
@@ -17,10 +18,13 @@
 #include <driver/i2s.h>
 #include <freertos/ringbuf.h>
 #include <esp_heap_caps.h>
+#include <qrcode.h>
 #include <math.h>
 
-#include "wifi_credentials.h"
-#include "ota_credentials.h"
+extern "C" {
+#include <webrtc/common_audio/vad/include/webrtc_vad.h>
+}
+
 #include "robot_config.h"
 #include "z2_hello_audio.h"
 
@@ -29,8 +33,6 @@ namespace
 constexpr char kProductName[] = "Z2";
 constexpr char kFirmwareVersion[] = "0.2.0";
 constexpr char kHostName[] = Z2_ROBOT_ID;
-constexpr char kFallbackApSsid[] = "Z2-Setup-" Z2_ROBOT_ID;
-constexpr char kFallbackApPassword[] = "z2robot01";
 constexpr unsigned long kWifiTimeoutMs = 15000;
 constexpr unsigned long kCommandTimeoutMs = 1200;
 
@@ -156,6 +158,7 @@ FaceEmotion gSpeakingEmotion = FaceEmotion::Happy;
 FaceEmotion gIdleEmotion = FaceEmotion::Neutral;
 
 WebServer gServer(80);
+DNSServer gSetupDns;
 Adafruit_NeoPixel gRing(kRingPixelCount, kRingDataPin, NEO_GRB + NEO_KHZ800);
 Adafruit_SSD1306 gDisplay(128, 64, &Wire, -1);
 Adafruit_VEML7700 gLightSensor;
@@ -173,6 +176,14 @@ VL53L1X *const gTofL1Sensors[kTofCount] = {
 };
 Preferences gPreferences;
 Preferences gRobotPreferences;
+bool gWifiSetupMode = false;
+bool gOtaReady = false;
+String gWifiSetupPassword;
+String gWifiSetupSsid;
+String gWifiConnectedSsid;
+String gWifiConnectionNote;
+void showWifiSetupInstructions();
+void showWifiSetupQr();
 String gRobotDeviceToken;
 String gManagedRobotName;
 String gManagedWakeWord;
@@ -207,7 +218,13 @@ bool gMicrophoneReady = false;
 uint32_t gMicrophoneRms = 0;
 uint32_t gMicrophonePeak = 0;
 uint32_t gMicrophoneFloor = 0;
+uint32_t gVoiceVadEnergyGate = 0;
 bool gVoiceDetected = false;
+VadInst *gVoiceVad = nullptr;
+int16_t gVoiceVadFrame[160] = {0};
+size_t gVoiceVadFrameSamples = 0;
+bool gVoiceVadReady = false;
+void resetVoiceVad();
 volatile bool gRealtimeSpeakerActive = false;
 RingbufHandle_t gRealtimeAudioBuffer = nullptr;
 size_t gRealtimeAudioBufferCapacity = 0;
@@ -221,6 +238,7 @@ unsigned long gLastMicrophoneReadMs = 0;
 
 void handleRealtimeMicrophoneFrame(const int32_t *samples, size_t sampleCount,
                                    size_t activeChannel);
+void addRealtimeLog(const String &message);
 void updateRealtimeConversation();
 bool controlLeaseActive();
 void activateControlLease(bool stopping = false);
@@ -230,6 +248,8 @@ void enqueueCloudCommand(const String &payload);
 bool peekCloudCommand(String &payload);
 void discardCloudCommand();
 void playRealtimePcm(const uint8_t *pcm, size_t length);
+void playWakeAcknowledgement();
+void playWakeRejection();
 void startRealtimePlaybackTask();
 void disableAutoDrive(const char *reason);
 bool applyDrive(char command, int speed);
@@ -308,14 +328,17 @@ unsigned long gLastTofReadMs = 0;
 uint8_t gNextTofIndex = 0;
 uint8_t gSpeakerVolumePercent = 60;
 constexpr uint16_t kMicrophoneCalibrationFrameCount = 50;
-constexpr uint8_t kVoiceAttackRequiredFrames = 6;
+// Require a sustained voice attack rather than allowing a short desk tap,
+// motor click, Wi-Fi noise burst, or room transient to open an STT turn.
+constexpr uint8_t kVoiceAttackRequiredFrames = 15;
 constexpr unsigned long kVoiceHangoverMs = 1000;
 constexpr unsigned long kPostPlaybackMicGuardMs = 700;
 constexpr uint32_t kVoiceMeterFullScale = 300000;
-// The INMP441's measured idle floor is roughly 20-25k RMS. A 45k minimum,
-// combined with the adaptive 2x-floor gate, retains quiet syllables while
-// remaining above ordinary room noise.
-constexpr uint32_t kVoiceMinimumRms = (kVoiceMeterFullScale * 15U) / 100U;
+// Z2 currently measures roughly 15k RMS at idle with a 22k calibrated floor.
+// A 40k base combined with the adaptive floor gate starts near 33-34k at the
+// configured sensitivity: comfortably above room noise, but reachable by
+// normal speech after a rejected wake attempt.
+constexpr uint32_t kVoiceMinimumRms = (kVoiceMeterFullScale * 40U) / 300U;
 
 uint32_t voiceSpeechOnThreshold()
 {

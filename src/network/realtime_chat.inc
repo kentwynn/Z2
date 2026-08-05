@@ -41,12 +41,18 @@ bool gRealtimeSessionPending = false;
 bool gRealtimeVoicePending = false;
 bool gRealtimeStartRecordingPending = false;
 bool gRealtimeExpectedClose = false;
+bool gRealtimeRecordingIsWake = false;
+bool gRealtimeWakeAcknowledgementPending = false;
+bool gRealtimeWakeRejectionPending = false;
 unsigned long gAiMotionStopAtMs = 0;
 String gRealtimeReplyEmotion = "HAPPY";
 uint8_t gRealtimeSpeechFrames = 0;
 size_t gRealtimeReplyAudioBytes = 0;
 unsigned long gRealtimeLastConnectAttemptMs = 0;
 unsigned long gRealtimeLastKeepaliveMs = 0;
+unsigned long gRealtimeLastPingMs = 0;
+bool gRealtimeFollowUpNeedsSilence = false;
+unsigned long gRealtimeFollowUpSilenceStartedMs = 0;
 struct RealtimePresentationNote {
     uint16_t frequencyHz = 0;
     uint16_t durationMs = 0;
@@ -116,6 +122,7 @@ void realtimePlaybackTask(void *)
 
 void realtimePresentationSoundTask(void *)
 {
+    constexpr unsigned long kPresentationMicGuardMs = 150;
     for (;;) {
         if (!gRealtimePresentationSoundReady || gRealtimeSpeakerActive) {
             vTaskDelay(pdMS_TO_TICKS(10));
@@ -125,11 +132,25 @@ void realtimePresentationSoundTask(void *)
         const uint8_t count = queuedCount > 4 ? 4 : queuedCount;
         const uint8_t volume = gRealtimePresentationSoundVolume;
         RealtimePresentationNote notes[4];
+        unsigned long soundDurationMs = 0;
         for (uint8_t index = 0; index < count; ++index)
+        {
             notes[index] = gRealtimePresentationNotes[index];
+            soundDurationMs += notes[index].durationMs + notes[index].gapMs;
+        }
         gRealtimePresentationSoundReady = false;
         gRealtimePresentationNoteCount = 0;
 
+        // Do not let the microphone interpret the acknowledgement/rejection
+        // notes as a new utterance. Clear both VAD and edge state before the
+        // first tone, then rearm after the acoustic tail has drained.
+        gRealtimeMicResumeAtMs =
+            millis() + soundDurationMs + kPresentationMicGuardMs;
+        gVoiceDetected = false;
+        gVoiceAttackFrames = 0;
+        gLastVoiceMs = 0;
+        resetVoiceVad();
+        gRealtimePreviousVoice = false;
         const uint8_t savedVolume = gSpeakerVolumePercent;
         gSpeakerVolumePercent = volume;
         for (uint8_t index = 0; index < count; ++index) {
@@ -138,7 +159,18 @@ void realtimePresentationSoundTask(void *)
         }
         gSpeakerVolumePercent = savedVolume;
         i2s_zero_dma_buffer(kSpeakerI2sPort);
-        gRealtimeMicResumeAtMs = millis() + kPostPlaybackMicGuardMs;
+        gRealtimeMicResumeAtMs = millis() + kPresentationMicGuardMs;
+        gVoiceDetected = false;
+        gVoiceAttackFrames = 0;
+        gLastVoiceMs = 0;
+        resetVoiceVad();
+        gRealtimePreviousVoice = false;
+        if (gRealtimeState == RealtimeChatState::FollowUp) {
+            // The acknowledgement note itself is the ready cue. Do not make
+            // the user provide another silence transition after hearing it.
+            gRealtimeFollowUpNeedsSilence = false;
+            gRealtimeFollowUpSilenceStartedMs = 0;
+        }
     }
 }
 
@@ -334,6 +366,10 @@ void sendWakeAudio()
 
 void startRealtimeRecording(bool includeWakeBuffer)
 {
+    // Capture which phase opened the recorder before changing the state.
+    // Wake phrases are short and must not inherit the much longer request cap.
+    gRealtimeRecordingIsWake =
+        gRealtimeState == RealtimeChatState::WakeListening;
     gRealtimeSocket.send("{\"type\":\"audio.start\"}");
     if (includeWakeBuffer) sendWakeAudio();
     gRealtimeRecordingStartedMs = millis();
@@ -360,18 +396,24 @@ void handleRealtimeSocketEvent(websockets::WebsocketsEvent type, String detail)
 {
     if (type == websockets::WebsocketsEvent::ConnectionOpened) {
         gRealtimeLastKeepaliveMs = millis();
+        gRealtimeLastPingMs = gRealtimeLastKeepaliveMs;
         Serial.println("[Z2 CHAT] secure WebSocket connected");
         addRealtimeLog("API WebSocket connected securely");
         return;
     }
     if (type == websockets::WebsocketsEvent::ConnectionClosed) {
+        const bool wasExpectedClose = gRealtimeExpectedClose;
         Serial.printf("[Z2 CHAT] disconnected detail=%s\n", detail.c_str());
-        addRealtimeLog(gRealtimeExpectedClose
+        addRealtimeLog(wasExpectedClose
             ? "API session closed normally"
             : "API WebSocket disconnected");
         gRealtimeExpectedClose = false;
         if (gRealtimeState != RealtimeChatState::WakeListening)
             closeRealtimeConversation("WebSocket disconnected");
+        // Unexpected transport loss should not create a five-second deaf
+        // period. Reconnect on the next application-loop iteration.
+        if (!wasExpectedClose && millis() >= 5000UL)
+            gRealtimeLastConnectAttemptMs = millis() - 5000UL;
     }
 }
 
@@ -489,6 +531,9 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         const char *text = event["transcript"] | "";
         addRealtimeLog(String("Wake rejected. Heard: ") +
                        (text[0] ? text : "(no speech)"));
+        gRealtimeWakeRejectionPending = true;
+    } else if (!strcmp(eventType, "speech.rejected")) {
+        addRealtimeLog("Ignored uncertain audio - listening again");
     } else if (!strcmp(eventType, "error")) {
         requestPresentation(PresentationOwner::System, gPresetSystemError, "error");
         const char *message = event["message"] | "";
@@ -515,21 +560,45 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
             setRealtimeState(RealtimeChatState::WakeListening,
                              wakePrompt.c_str());
         }
-    } else if (!strcmp(eventType, "wake.rejected") ||
-               !strcmp(eventType, "session.timeout")) {
+    } else if (!strcmp(eventType, "session.timeout")) {
         gRealtimeExpectedClose = true;
         closeRealtimeConversation(eventType);
+    } else if (!strcmp(eventType, "wake.rejected")) {
+        gRealtimePreviousVoice = true;
+        gRealtimeFollowUpNeedsSilence = false;
+        gRealtimeFollowUpSilenceStartedMs = 0;
+        gWakeAudioSize = 0;
+        gWakeAudioWrite = 0;
+        gWakeAudioCaptureActive = false;
+        setRealtimeState(RealtimeChatState::WakeListening,
+                         "wake rejected - listening again");
     } else if (!strcmp(eventType, "wake.detected")) {
         setRealtimeState(RealtimeChatState::Waiting,
                          "wake accepted - waiting for API reply");
     } else if (!strcmp(eventType, "wake.ready")) {
         gRealtimeFollowUpStartedMs = millis();
-        gRealtimePreviousVoice = false;
+        // The wake phrase may still be inside the VAD hangover when this event
+        // arrives. Require a clean silence/release before accepting a new
+        // rising edge, otherwise the tail of "Hey Z2" becomes a second turn.
+        gRealtimeFollowUpNeedsSilence = true;
+        gRealtimeFollowUpSilenceStartedMs = 0;
+        gRealtimePreviousVoice = true;
+        gWakeAudioSize = 0;
+        gWakeAudioWrite = 0;
+        gWakeAudioCaptureActive = false;
+        gRealtimeWakeAcknowledgementPending = true;
+        setRealtimeState(RealtimeChatState::FollowUp,
+                         "wake accepted - listening for request");
+    } else if (!strcmp(eventType, "speech.rejected")) {
+        gRealtimeFollowUpStartedMs = millis();
+        gRealtimeFollowUpNeedsSilence = true;
+        gRealtimeFollowUpSilenceStartedMs = 0;
+        gRealtimePreviousVoice = true;
         gWakeAudioSize = 0;
         gWakeAudioWrite = 0;
         gWakeAudioCaptureActive = false;
         setRealtimeState(RealtimeChatState::FollowUp,
-                         "wake accepted - listening for request");
+                         "uncertain audio ignored - listening again");
     } else if (!strcmp(eventType, "reply.emotion")) {
         gRealtimeReplyEmotion = String(event["emotion"] | "neutral");
         gRealtimeReplyEmotion.toUpperCase();
@@ -643,6 +712,25 @@ void handleRealtimeMicrophoneFrame(const int32_t *samples, size_t sampleCount,
     }
     if (!pcmBytes) return;
 
+    if (gRealtimeState == RealtimeChatState::FollowUp &&
+        gRealtimeFollowUpNeedsSilence) {
+        if (gVoiceDetected) {
+            gRealtimeFollowUpSilenceStartedMs = 0;
+            gRealtimePreviousVoice = true;
+        } else {
+            if (!gRealtimeFollowUpSilenceStartedMs)
+                gRealtimeFollowUpSilenceStartedMs = millis();
+            if (millis() - gRealtimeFollowUpSilenceStartedMs >= 250UL) {
+                gRealtimeFollowUpNeedsSilence = false;
+                gRealtimePreviousVoice = false;
+                gWakeAudioSize = 0;
+                gWakeAudioWrite = 0;
+                gWakeAudioCaptureActive = false;
+            }
+        }
+        return;
+    }
+
     const bool voiceStarted = gVoiceDetected && !gRealtimePreviousVoice;
     gRealtimePreviousVoice = gVoiceDetected;
     if (voiceStarted && (gRealtimeState == RealtimeChatState::WakeListening ||
@@ -740,7 +828,48 @@ void updateRealtimeConversation()
         gRealtimeStartRecordingPending = false;
         startRealtimeRecording(true);
     }
+    if (gRealtimeWakeAcknowledgementPending) {
+        gRealtimeWakeAcknowledgementPending = false;
+        playWakeAcknowledgement();
+        gRealtimeMicResumeAtMs = millis() + 150UL;
+        gVoiceDetected = false;
+        gVoiceAttackFrames = 0;
+        gLastVoiceMs = 0;
+        resetVoiceVad();
+        gRealtimePreviousVoice = false;
+        gRealtimeFollowUpNeedsSilence = false;
+        gRealtimeFollowUpSilenceStartedMs = 0;
+        addRealtimeLog("Follow-up microphone armed");
+    }
+    if (gRealtimeWakeRejectionPending) {
+        gRealtimeWakeRejectionPending = false;
+        playWakeRejection();
+        delay(80);
+        playWakeAcknowledgement();
+        gRealtimeMicResumeAtMs = millis() + 150UL;
+        gVoiceDetected = false;
+        gVoiceAttackFrames = 0;
+        gLastVoiceMs = 0;
+        resetVoiceVad();
+        gRealtimePreviousVoice = false;
+        gRealtimeFollowUpNeedsSilence = false;
+        gRealtimeFollowUpSilenceStartedMs = 0;
+        gWakeAudioSize = 0;
+        gWakeAudioWrite = 0;
+        gWakeAudioCaptureActive = false;
+        addRealtimeLog(String("Wake microphone rearmed - say ") +
+                       gManagedWakeWord);
+    }
     const unsigned long now = millis();
+    // Keep the transport alive while the cloud is doing STT, model, toolbox,
+    // or TTS work. Application keepalives are only appropriate while the API
+    // is awaiting a message; WebSocket ping frames are safe during an active
+    // turn and do not create noisy diagnostic events.
+    if (gRealtimeSocket.available() &&
+        gRealtimeState != RealtimeChatState::Recording &&
+        now - gRealtimeLastPingMs >= 8000UL) {
+        if (gRealtimeSocket.ping("z2")) gRealtimeLastPingMs = now;
+    }
     if (gRealtimeState == RealtimeChatState::WakeListening &&
         gRealtimeSocket.available() &&
         now - gRealtimeLastKeepaliveMs >= 15000UL) {
@@ -758,9 +887,19 @@ void updateRealtimeConversation()
         closeRealtimeConversation("connection timeout");
         return;
     }
+    const unsigned long recordingDurationMs =
+        now - gRealtimeRecordingStartedMs;
+    const bool silenceEndedRecording =
+        now - gRealtimeLastSpeechMs >= Z2_SILENCE_END_MS &&
+        (!gRealtimeRecordingIsWake ||
+         recordingDurationMs >= Z2_MIN_WAKE_RECORDING_MS);
+    const bool recordingLimitReached =
+        recordingDurationMs >=
+        (gRealtimeRecordingIsWake
+             ? Z2_MAX_WAKE_RECORDING_MS
+             : Z2_MAX_RECORDING_MS);
     if (gRealtimeState == RealtimeChatState::Recording &&
-        (now - gRealtimeLastSpeechMs >= Z2_SILENCE_END_MS ||
-         now - gRealtimeRecordingStartedMs >= Z2_MAX_RECORDING_MS)) {
+        (silenceEndedRecording || recordingLimitReached)) {
         gRealtimeSocket.send("{\"type\":\"audio.end\"}");
         addRealtimeLog(String("Recording complete: ") +
                        (now - gRealtimeRecordingStartedMs) + " ms");

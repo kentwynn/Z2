@@ -1,27 +1,88 @@
-void startNetwork()
+String setupPassword()
 {
+    const uint64_t chip = ESP.getEfuseMac();
+    char password[9];
+    snprintf(password, sizeof(password), "Z2%06lX",
+             static_cast<unsigned long>(chip) & 0xFFFFFFUL);
+    return String(password);
+}
+
+String setupSsid()
+{
+    const uint64_t chip = ESP.getEfuseMac();
+    char ssid[7];
+    snprintf(ssid, sizeof(ssid), "Z2%04lX",
+             static_cast<unsigned long>(chip) & 0xFFFFUL);
+    return String(ssid);
+}
+
+bool connectToWifi(const String &ssid, const String &password, const char *source)
+{
+    if (ssid.isEmpty()) return false;
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(kHostName);
-    WiFi.begin(Z2_WIFI_SSID, Z2_WIFI_PASSWORD);
-    Serial.printf("[Z2] connecting to Wi-Fi \"%s\"", Z2_WIFI_SSID);
-
+    WiFi.begin(ssid.c_str(), password.c_str());
+    Serial.printf("[Z2 WIFI] trying %s network \"%s\"", source, ssid.c_str());
     const unsigned long startedMs = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - startedMs < kWifiTimeoutMs) {
         delay(250);
         Serial.print('.');
     }
-
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("\n[Z2] Wi-Fi connected: %s\n", WiFi.localIP().toString().c_str());
-    } else {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println(" failed");
         WiFi.disconnect(true);
-        WiFi.mode(WIFI_AP);
-        WiFi.softAP(kFallbackApSsid, kFallbackApPassword);
-        Serial.printf("\n[Z2] Wi-Fi failed; AP \"%s\" started at %s\n",
-                      kFallbackApSsid, WiFi.softAPIP().toString().c_str());
+        return false;
     }
+    gWifiConnectedSsid = ssid;
+    gWifiConnectionNote = source;
+    Serial.printf(" connected at %s\n", WiFi.localIP().toString().c_str());
+    return true;
+}
 
-    if (MDNS.begin(kHostName)) {
+void startWifiSetupAccessPoint()
+{
+    gWifiSetupMode = true;
+    gWifiSetupPassword = setupPassword();
+    gWifiSetupSsid = setupSsid();
+    // AP+STA keeps the captive setup network available while the station
+    // radio scans nearby home networks for the phone's network picker.
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP(gWifiSetupSsid.c_str(), gWifiSetupPassword.c_str());
+    gSetupDns.start(53, "*", WiFi.softAPIP());
+    Serial.printf("[Z2 WIFI] setup AP \"%s\" at %s; password shown on OLED\n",
+                  gWifiSetupSsid.c_str(), WiFi.softAPIP().toString().c_str());
+}
+
+void startNetwork()
+{
+    const bool setupRequested = gRobotPreferences.getBool("wifi-setup", false);
+    if (setupRequested) {
+        gRobotPreferences.remove("wifi-setup");
+        startWifiSetupAccessPoint();
+    }
+    const String pendingSsid = gRobotPreferences.getString("wifi-next-s", "");
+    const String pendingPassword = gRobotPreferences.getString("wifi-next-p", "");
+    const String savedSsid = gRobotPreferences.getString("wifi-ssid", "");
+    const String savedPassword = gRobotPreferences.getString("wifi-pass", "");
+
+    if (!gWifiSetupMode && !pendingSsid.isEmpty()) {
+        if (connectToWifi(pendingSsid, pendingPassword, "new")) {
+            gRobotPreferences.putString("wifi-ssid", pendingSsid);
+            gRobotPreferences.putString("wifi-pass", pendingPassword);
+            gRobotPreferences.remove("wifi-next-s");
+            gRobotPreferences.remove("wifi-next-p");
+            Serial.println("[Z2 WIFI] new network verified and promoted");
+        } else {
+            gRobotPreferences.remove("wifi-next-s");
+            gRobotPreferences.remove("wifi-next-p");
+            gWifiConnectionNote = "new network failed; rolled back";
+        }
+    }
+    if (!gWifiSetupMode && WiFi.status() != WL_CONNECTED && !savedSsid.isEmpty())
+        connectToWifi(savedSsid, savedPassword, "saved");
+    if (!gWifiSetupMode && WiFi.status() != WL_CONNECTED) startWifiSetupAccessPoint();
+
+    if (!gWifiSetupMode && MDNS.begin(kHostName)) {
         MDNS.addService("http", "tcp", 80);
         Serial.printf("[Z2] diagnostics: http://%s.local\n", kHostName);
     } else {
@@ -31,13 +92,14 @@ void startNetwork()
 
 void startOta()
 {
-    if (strcmp(Z2_OTA_PASSWORD, "SET_YOUR_OTA_PASSWORD") == 0 ||
-        strlen(Z2_OTA_PASSWORD) < 8) {
-        Serial.println("[Z2 OTA] disabled; set a password of at least 8 characters");
+    gOtaReady = false;
+    const String otaPassword = gRobotPreferences.getString("ota-pass", "");
+    if (gWifiSetupMode || otaPassword.length() < 12) {
+        Serial.println("[Z2 OTA] disabled until secure device onboarding completes");
         return;
     }
     ArduinoOTA.setHostname(kHostName);
-    ArduinoOTA.setPassword(Z2_OTA_PASSWORD);
+    ArduinoOTA.setPassword(otaPassword.c_str());
     ArduinoOTA.onStart([] {
         disableAutoDrive("OTA update");
         gCliffRecoveryActive = false;
@@ -49,6 +111,7 @@ void startOta()
         Serial.printf("[Z2 OTA] error=%u\n", error);
     });
     ArduinoOTA.begin();
+    gOtaReady = true;
     Serial.printf("[Z2 OTA] ready at %s.local:3232\n", kHostName);
 }
 } // namespace

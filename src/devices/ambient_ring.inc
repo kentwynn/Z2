@@ -26,6 +26,14 @@ const char *ringModeName()
 
 void refreshRing()
 {
+    if (gWifiSetupMode) {
+        gVoiceRingOverlayActive = false;
+        gRingMode = RingMode::Off;
+        gRing.setBrightness(0);
+        gRing.clear();
+        gRing.show();
+        return;
+    }
     if (gVoiceRingOverlayActive) {
         gRing.setBrightness(gVoiceRingBrightness);
         const uint32_t color = gRing.Color(

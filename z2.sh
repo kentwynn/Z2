@@ -26,23 +26,12 @@ require_setup() {
     echo "Error: PlatformIO 'pio' command not found." >&2
     exit 1
   fi
-  if [[ ! -f "$PROJECT_DIR/include/wifi_credentials.h" ]]; then
-    echo "Error: Z2 Wi-Fi credentials are missing." >&2
-    echo "Copy include/wifi_credentials.example.h to include/wifi_credentials.h and edit it." >&2
-    exit 1
-  fi
-  if [[ ! -f "$PROJECT_DIR/include/ota_credentials.h" ]]; then
-    echo "Error: Z2 OTA credentials are missing." >&2
-    echo "Copy include/ota_credentials.example.h to include/ota_credentials.h and edit it." >&2
-    exit 1
-  fi
 }
 
 read_ota_password() {
-  local credentials="$PROJECT_DIR/include/ota_credentials.h"
-  OTA_PASSWORD="$(awk -F'"' '/Z2_OTA_PASSWORD/ { print $2; exit }' "$credentials")"
-  if [[ -z "$OTA_PASSWORD" || "$OTA_PASSWORD" == "SET_YOUR_OTA_PASSWORD" || ${#OTA_PASSWORD} -lt 8 ]]; then
-    echo "Error: set a private OTA password of at least 8 characters in include/ota_credentials.h." >&2
+  OTA_PASSWORD="${Z2_OTA_PASSWORD:-}"
+  if [[ ${#OTA_PASSWORD} -lt 12 ]]; then
+    echo "Error: set Z2_OTA_PASSWORD to the device-scoped OTA credential issued during onboarding." >&2
     exit 1
   fi
 }

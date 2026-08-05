@@ -169,20 +169,10 @@ OLED mapping:
 
 ## Configure and flash
 
-Create Z2's private Wi-Fi configuration:
-
-```bash
-cp include/wifi_credentials.example.h include/wifi_credentials.h
-```
-
-Create Z2's private OTA configuration and replace the placeholder with a
-password of at least eight characters:
-
-```bash
-cp include/ota_credentials.example.h include/ota_credentials.h
-```
-
-Both private credential headers are ignored by Git.
+Wi-Fi is not compiled into the firmware. A blank Z2 opens its protected setup
+network and displays a QR code on the OLED. The captive setup page stores the
+verified network in device-local NVS and keeps the RGB ring off throughout
+setup.
 
 The first OTA-enabled firmware installation must use USB:
 
@@ -190,18 +180,16 @@ The first OTA-enabled firmware installation must use USB:
 ./z2.sh flash
 ```
 
-After that, while Z2 is powered and connected to home Wi-Fi, build and flash
-wirelessly with:
+After secure device onboarding has installed a device-scoped OTA credential,
+export it for the current terminal and update wirelessly with:
 
 ```bash
+export Z2_OTA_PASSWORD='device-scoped-password'
 ./z2.sh ota
 ```
 
-OTA resolves `z2.local`, authenticates with the private password, stops both
+OTA resolves `z2-001.local`, authenticates with the device-scoped password, stops both
 motors before writing firmware, and restarts Z2 after a successful update.
-
-Enter the same Wi-Fi network used by the phone or computer that will open
-`z2.local`, then run:
 
 ```bash
 chmod +x z2.sh

@@ -29,7 +29,21 @@ bool initAudio()
         return false;
     }
     i2s_zero_dma_buffer(kSpeakerI2sPort);
+    gVoiceVad = WebRtcVad_Create();
+    gVoiceVadReady = gVoiceVad && WebRtcVad_Init(gVoiceVad) == 0 &&
+                     WebRtcVad_set_mode(gVoiceVad, 3) == 0;
+    Serial.printf("[Z2 MIC] WebRTC VAD %s mode=3 frame=10ms\n",
+                  gVoiceVadReady ? "ready" : "unavailable");
     return true;
+}
+
+void resetVoiceVad()
+{
+    gVoiceVadFrameSamples = 0;
+    if (gVoiceVadReady) {
+        WebRtcVad_Init(gVoiceVad);
+        WebRtcVad_set_mode(gVoiceVad, 3);
+    }
 }
 
 void updateMicrophone()
@@ -103,12 +117,44 @@ void updateMicrophone()
         return;
     }
 
+    bool vadSpeech = false;
+    bool vadDecisionReady = false;
+    if (gVoiceVadReady) {
+        for (size_t i = activeChannel; i < sampleCount; i += 2) {
+            const int32_t raw = samples[i] >> 16;
+            gVoiceVadFrame[gVoiceVadFrameSamples++] =
+                static_cast<int16_t>(constrain(
+                    raw * Z2_MIC_PCM_GAIN, -32768L, 32767L));
+            if (gVoiceVadFrameSamples == 160) {
+                const int decision = WebRtcVad_Process(
+                    gVoiceVad, Z2_INPUT_AUDIO_SAMPLE_RATE,
+                    gVoiceVadFrame, gVoiceVadFrameSamples);
+                if (decision >= 0) {
+                    vadDecisionReady = true;
+                    vadSpeech = vadSpeech || decision == 1;
+                }
+                gVoiceVadFrameSamples = 0;
+            }
+        }
+    }
+
     const uint32_t speechOn = voiceSpeechOnThreshold();
     const uint32_t speechOff = max<uint32_t>(
         (kVoiceMinimumRms * 3U) / 5U,
         (gMicrophoneFloor * 4U) / 3U);
     const unsigned long now = millis();
-    if (gMicrophoneRms >= speechOn) {
+    const bool voiceWasDetected = gVoiceDetected;
+    // The permissive energy gate removes Z2's measured low-level electrical
+    // floor; WebRTC then distinguishes speech from louder non-speech noise.
+    // Neither detector can start a turn by itself.
+    const uint32_t vadEnergyGate = max<uint32_t>(
+        (kVoiceMinimumRms * 3U) / 5U,
+        (gMicrophoneFloor * 6U) / 5U);
+    gVoiceVadEnergyGate = vadEnergyGate;
+    const bool speechFrame = gVoiceVadReady
+        ? (vadDecisionReady && vadSpeech && gMicrophoneRms >= vadEnergyGate)
+        : gMicrophoneRms >= speechOn;
+    if (speechFrame) {
         if (gVoiceAttackFrames < kVoiceAttackRequiredFrames) ++gVoiceAttackFrames;
         if (gVoiceAttackFrames >= kVoiceAttackRequiredFrames) {
             gVoiceDetected = true;
@@ -116,11 +162,18 @@ void updateMicrophone()
         }
     } else {
         gVoiceAttackFrames = 0;
-        if (gVoiceDetected && gMicrophoneRms >= speechOff) gLastVoiceMs = now;
+        if (!gVoiceVadReady && gVoiceDetected && gMicrophoneRms >= speechOff)
+            gLastVoiceMs = now;
         if (gVoiceDetected && now - gLastVoiceMs >= kVoiceHangoverMs) gVoiceDetected = false;
     }
     if (!gVoiceDetected && gMicrophoneRms < speechOn) {
         gMicrophoneFloor = (gMicrophoneFloor * 63U + gMicrophoneRms) / 64U;
+    }
+    if (!voiceWasDetected && gVoiceDetected) {
+        addRealtimeLog(String("Local speech detected: RMS ") + gMicrophoneRms +
+                       " · floor " + gMicrophoneFloor +
+                       " · gate " + gVoiceVadEnergyGate +
+                       " · WebRTC");
     }
     handleRealtimeMicrophoneFrame(samples, sampleCount, activeChannel);
 }
@@ -222,6 +275,23 @@ void playHelloVoice()
     outputTone(1450, 65);
     outputTone(0, 35);
     playVoiceWav(kZ2HelloWav, kZ2HelloWav_len);
+}
+
+void playWakeAcknowledgement()
+{
+    // Instant local feedback: short enough not to delay the user's question.
+    outputTone(1050, 45);
+    outputTone(0, 20);
+    outputTone(1450, 55);
+    i2s_zero_dma_buffer(kSpeakerI2sPort);
+}
+
+void playWakeRejection()
+{
+    outputTone(850, 55);
+    outputTone(0, 20);
+    outputTone(520, 70);
+    i2s_zero_dma_buffer(kSpeakerI2sPort);
 }
 
 void playSound(const String &requestedName)

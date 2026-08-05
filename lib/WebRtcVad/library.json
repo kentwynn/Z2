@@ -1,0 +1,17 @@
+{
+  "name": "WebRtcVad",
+  "version": "2.0.11-z2.1",
+  "license": "BSD-3-Clause",
+  "build": {
+    "flags": [
+      "-DWEBRTC_POSIX",
+      "-I src"
+    ],
+    "srcFilter": [
+      "+<webrtc/common_audio/signal_processing/*.c>",
+      "+<webrtc/common_audio/third_party/spl_sqrt_floor/*.c>",
+      "+<webrtc/common_audio/vad/*.c>",
+      "+<webrtc/rtc_base/checks.cc>"
+    ]
+  }
+}

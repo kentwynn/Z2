@@ -280,6 +280,16 @@ void updateOled()
 {
     if (!gOledReady || millis() - gLastOledUpdateMs < 100) return;
     gLastOledUpdateMs = millis();
+    if (gWifiSetupMode) {
+        static bool qrVisible = true;
+        const bool wantQr = millis() % 15000UL < 10000UL;
+        if (wantQr != qrVisible) {
+            qrVisible = wantQr;
+            if (qrVisible) showWifiSetupQr();
+            else showWifiSetupInstructions();
+        }
+        return;
+    }
     gDisplay.clearDisplay();
     if (!gOledLiveStatus.isEmpty() &&
         static_cast<int32_t>(gOledConsoleUntilMs - millis()) > 0) {
@@ -295,4 +305,59 @@ void updateOled()
     else if (gDisplayMode == DisplayMode::Info) drawRobotInfo();
     else drawSensorInfo();
     gDisplay.display();
+}
+
+void showWifiSetupInstructions()
+{
+    if (!gOledReady || !gWifiSetupMode) return;
+    gDisplay.ssd1306_command(SSD1306_SETCONTRAST);
+    gDisplay.ssd1306_command(0x7F);
+    gDisplay.clearDisplay();
+    gDisplay.setTextSize(1);
+    gDisplay.setTextColor(SSD1306_WHITE);
+    gDisplay.setCursor(0, 0);  gDisplay.print("Z2 WI-FI SETUP");
+    gDisplay.setCursor(0, 11); gDisplay.print("Network:");
+    gDisplay.setCursor(0, 21); gDisplay.print(gWifiSetupSsid);
+    gDisplay.setCursor(0, 33); gDisplay.print("Password:");
+    gDisplay.setCursor(0, 43); gDisplay.print(gWifiSetupPassword);
+    gDisplay.setCursor(0, 55); gDisplay.print("Open 192.168.4.1");
+    gDisplay.display();
+}
+
+void drawLargeWifiQr(esp_qrcode_handle_t code)
+{
+    const int modules = esp_qrcode_get_size(code);
+    constexpr int quiet = 2;
+    constexpr int pixels = 60;
+    const int left = (128 - pixels) / 2;
+    const int top = (64 - pixels) / 2;
+    gDisplay.ssd1306_command(SSD1306_SETCONTRAST);
+    gDisplay.ssd1306_command(0x25);
+    gDisplay.clearDisplay();
+    gDisplay.fillRect(left - quiet, top - quiet, pixels + quiet * 2,
+                      pixels + quiet * 2, SSD1306_WHITE);
+    for (int y = 0; y < modules; ++y) {
+        const int y0 = top + (y * pixels) / modules;
+        const int y1 = top + ((y + 1) * pixels) / modules;
+        for (int x = 0; x < modules; ++x) {
+            if (!esp_qrcode_get_module(code, x, y)) continue;
+            const int x0 = left + (x * pixels) / modules;
+            const int x1 = left + ((x + 1) * pixels) / modules;
+            gDisplay.fillRect(x0, y0, x1 - x0, y1 - y0, SSD1306_BLACK);
+        }
+    }
+    gDisplay.display();
+}
+
+void showWifiSetupQr()
+{
+    if (!gOledReady || !gWifiSetupMode) return;
+    const String payload = String("WIFI:T:WPA;S:") + gWifiSetupSsid +
+                           ";P:" + gWifiSetupPassword + ";;";
+    esp_qrcode_config_t config = ESP_QRCODE_CONFIG_DEFAULT();
+    config.display_func = drawLargeWifiQr;
+    config.max_qrcode_version = 2;
+    config.qrcode_ecc_level = ESP_QRCODE_ECC_LOW;
+    if (esp_qrcode_generate(&config, payload.c_str()) != ESP_OK)
+        showWifiSetupInstructions();
 }
