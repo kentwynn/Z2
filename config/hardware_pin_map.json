@@ -1,0 +1,133 @@
+{
+  "robot": "Z2",
+  "boardModule": "ESP32-S3-WROOM-1-N16R8",
+  "motorDriver": {
+    "type": "TB6612FNG",
+    "logicPower": {
+      "VCC": "ESP32-S3 3V3",
+      "GND": "Common ground"
+    },
+    "motorPower": {
+      "VM": "LM2596 OUT+",
+      "GND": "Common ground"
+    },
+    "controlPins": {
+      "PWMA": 10,
+      "AIN1": 8,
+      "AIN2": 7,
+      "STBY": 12,
+      "BIN1": 13,
+      "BIN2": 41,
+      "PWMB": 11
+    },
+    "motors": {
+      "right": {
+        "outputs": "AO1/AO2",
+        "AO1": "motor VCC lead",
+        "AO2": "motor GND lead"
+      },
+      "left": {
+        "outputs": "BO1/BO2",
+        "BO1": "motor VCC lead",
+        "BO2": "motor GND lead"
+      }
+    }
+  },
+  "speakerAmplifier": {
+    "type": "MAX98357A I2S",
+    "LRC_WS": 4,
+    "BCLK": 5,
+    "DIN": 6,
+    "SD": 3,
+    "VIN": "LM2596 OUT+",
+    "GND": "Common ground",
+    "speakerPositive": "3W 8-ohm speaker +",
+    "speakerNegative": "3W 8-ohm speaker -"
+  },
+  "microphone": {
+    "type": "INMP441 I2S",
+    "SD": 9,
+    "VDD": "ESP32-S3 3V3",
+    "GND": "ESP32-S3 GND",
+    "LR": "GND (left channel)",
+    "WS": 4,
+    "SCK": 5,
+    "sharedClockBus": "WS/SCK shared with MAX98357A LRC/BCLK"
+  },
+  "rgbRing": {
+    "type": "Adafruit NeoPixel Ring",
+    "ledCount": 12,
+    "dataIn": 14,
+    "VDD": "Regulated 5V supply; do not use a 6V or 6.6V motor rail",
+    "GND": "Common ground",
+    "colorOrder": "GRB",
+    "frequency": "800kHz",
+    "brightnessLimit": 180
+  },
+  "trafficLight": {
+    "type": "Three-color traffic light module with onboard resistors",
+    "green": 15,
+    "yellow": 16,
+    "red": 17,
+    "GND": "Common ground",
+    "logic": "Active HIGH from ESP32-S3 3.3V GPIO"
+  },
+  "oled": {
+    "type": "SSD1306 128x64 I2C",
+    "VCC": "ESP32-S3 3V3",
+    "GND": "Common ground",
+    "SCL": 42,
+    "SDA": 47,
+    "address": "0x3C"
+  },
+  "ambientLightSensor": {
+    "type": "VEML7700",
+    "VIN": "ESP32-S3 3V3",
+    "GND": "Common ground",
+    "SCL": 42,
+    "SDA": 47,
+    "address": "0x10",
+    "sharedI2CBus": "Shared with SSD1306 OLED"
+  },
+  "ultrasonicSensor": {
+    "type": "HY-SRF05",
+    "VCC": "LM2596 OUT+ regulated 5V",
+    "GND": "LM2596 OUT- / common ground",
+    "TRIGGER": 18,
+    "ECHO": 40,
+    "echoProtection": "5V ECHO passes through a 10k/20k voltage divider to GPIO40"
+  },
+  "timeOfFlightSensors": {
+    "type": "Mixed VL53L0X / VL53L1X",
+    "VCC": "ESP32-S3 3V3",
+    "GND": "Common ground",
+    "SDA": 47,
+    "SCL": 42,
+    "sensors": {
+      "frontLeft": {
+        "model": "VL53L1X",
+        "XSHUT": 2,
+        "runtimeAddress": "0x30"
+      },
+      "frontRight": {
+        "model": "VL53L0X",
+        "XSHUT": 39,
+        "runtimeAddress": "0x31"
+      },
+      "back": {
+        "model": "VL53L1X",
+        "XSHUT": 1,
+        "runtimeAddress": "0x32"
+      }
+    }
+  },
+  "cliffSensors": {
+    "type": "2 x TCRT-5000 digital IR modules",
+    "VCC": "ESP32-S3 3V3",
+    "GND": "Common ground",
+    "detectedLevel": "HIGH for missing floor reflection; LOW normally corresponds to the indicator LED seeing floor",
+    "left": {"D0": 45},
+    "right": {"D0": 48},
+    "behavior": "While moving forward or turning, a debounced cliff stops motion and reverses slowly for 380 ms if the rear ToF path is clear"
+  }
+}

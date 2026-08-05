@@ -1,0 +1,4 @@
+.pio/
+include/wifi_credentials.h
+include/ota_credentials.h
+.DS_Store
