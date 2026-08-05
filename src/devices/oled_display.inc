@@ -15,6 +15,9 @@ void drawFace()
     } else if (gFaceAnimation == "PROCESSING") {
         // Slower gaze movement makes model processing visibly alive.
         eyeOffset = static_cast<int8_t>((millis() / 520UL) % 3U) * 3 - 3;
+    } else if (gFaceAnimation == "TALKING") {
+        // A tiny gaze pulse keeps speech alive without adding a mouth.
+        eyeOffset = static_cast<int8_t>((millis() / 180UL) % 3U) - 1;
     }
 
     if (gFaceEmotion == FaceEmotion::Surprised) {
@@ -68,13 +71,6 @@ void drawFace()
         gDisplay.fillRoundRect(83 + eyeOffset, 16, 25, 30, 11, SSD1306_WHITE);
         gDisplay.fillCircle(36 + eyeOffset, 24, 4, SSD1306_BLACK);
         gDisplay.fillCircle(99 + eyeOffset, 24, 4, SSD1306_BLACK);
-        const uint8_t activeDot = (millis() / 260UL) % 3U;
-        for (uint8_t dot = 0; dot < 3; ++dot) {
-            if (dot == activeDot)
-                gDisplay.fillCircle(56 + dot * 8, 56, 3, SSD1306_WHITE);
-            else
-                gDisplay.drawCircle(56 + dot * 8, 56, 2, SSD1306_WHITE);
-        }
     } else if (gFaceEmotion == FaceEmotion::Angry) {
         gDisplay.fillTriangle(18 + eyeOffset, 19, 50 + eyeOffset, 29,
                               22 + eyeOffset, 48, SSD1306_WHITE);
@@ -121,22 +117,10 @@ void drawFace()
         gDisplay.fillCircle(93 + eyeOffset, eyeTop + 9, 3, SSD1306_BLACK);
     }
 
-    if (gFaceAnimation == "LISTENING") {
-        // Animated sound-level bars indicate active listening without LEDs.
-        const uint8_t phase = (millis() / 120UL) % 4U;
-        for (uint8_t bar = 0; bar < 3; ++bar) {
-            const uint8_t height = 2 + ((phase + bar) % 4U) * 2;
-            gDisplay.fillRoundRect(58 + bar * 5, 63 - height, 3, height,
-                                   1, SSD1306_WHITE);
-        }
-    } else if (gFaceAnimation == "TALKING") {
-        // Mouth movement follows playback time, giving every selected emotion
-        // a living speaking animation instead of a frozen face.
-        const uint8_t phase = (millis() / 105UL) % 5U;
-        const uint8_t height = 2 + (phase <= 2 ? phase : 4 - phase) * 3;
-        gDisplay.fillRoundRect(52, 62 - height, 24, height, 3, SSD1306_WHITE);
-        if (height >= 5) gDisplay.drawLine(57, 60, 71, 60, SSD1306_BLACK);
-    }
+    // The OLED character is deliberately eyes-only. Listening, thinking, and
+    // speaking remain visible through gaze, blink, and eye-shape animation;
+    // extra meters, status dots, or a mouth make the tiny display look like a
+    // diagnostic panel instead of a robot face.
 }
 
 void drawRobotInfo()
@@ -232,48 +216,29 @@ String oledCompactLine(String value, uint8_t width = 20)
     return value;
 }
 
-void drawConversationConsole()
+void drawToolboxActivity()
 {
     gDisplay.setTextColor(SSD1306_WHITE);
     gDisplay.setTextSize(1);
     gDisplay.fillCircle(4, 4, millis() % 700UL < 350UL ? 2 : 1,
                         SSD1306_WHITE);
     gDisplay.setCursor(10, 0);
-    gDisplay.printf("%s  %s", oledCompactLine(gOledAiTitle, 8).c_str(),
-                    gOledLiveStatus.c_str());
+    gDisplay.print(oledCompactLine(gOledAiTitle, 20));
     gDisplay.drawLine(0, 10, 127, 10, SSD1306_WHITE);
 
     gDisplay.setCursor(0, 14);
-    gDisplay.print("HEARD ");
-    gDisplay.print(oledCompactLine(gOledLastHeard, 14));
+    gDisplay.setTextSize(2);
+    gDisplay.print(oledCompactLine(gOledToolPrimary, 10));
 
     gDisplay.setCursor(0, 27);
-    if (!gOledLiveDetail.isEmpty()) {
-        gDisplay.print("TOOL  ");
-        gDisplay.print(oledCompactLine(gOledLiveDetail, 14));
-    } else if (!gOledReplyMood.isEmpty()) {
-        gDisplay.print(oledCompactLine(gOledAiSymbol, 2));
-        gDisplay.print(" ");
-        gDisplay.print(oledCompactLine(gOledAiAccent, 17));
-    } else {
-        gDisplay.print("TOOL  --");
-    }
+    gDisplay.setTextSize(1);
+    gDisplay.print(oledCompactLine(gOledToolSecondary, 20));
 
     gDisplay.setCursor(0, 40);
-    if (!gOledLastReply.isEmpty()) {
-        gDisplay.print("Z2    ");
-        gDisplay.print(oledCompactLine(gOledLastReply, 14));
-    } else if (gOledLiveStatus == "SPEAK") {
-        gDisplay.printf("AUDIO %u KB",
-                        static_cast<unsigned>(gOledReplyAudioBytes / 1024));
-    } else {
-        gDisplay.print("Z2    waiting");
-    }
+    gDisplay.print(oledCompactLine(gOledToolDetail, 20));
 
     gDisplay.setCursor(0, 53);
-    gDisplay.print(gOledLiveStatus == "FOLLOW-UP"
-                       ? "Listening for reply"
-                       : "Live conversation");
+    gDisplay.print(oledCompactLine(gOledLiveDetail, 20));
 }
 
 void updateOled()
@@ -291,19 +256,27 @@ void updateOled()
         return;
     }
     gDisplay.clearDisplay();
-    if (!gOledLiveStatus.isEmpty() &&
+    if (!gOledLiveDetail.isEmpty() &&
         static_cast<int32_t>(gOledConsoleUntilMs - millis()) > 0) {
-        drawConversationConsole();
+        drawToolboxActivity();
         gDisplay.display();
         return;
     }
-    if (gOledLiveStatus == "READY") gOledLiveStatus = "";
-    if (gDisplayMode == DisplayMode::Off) { gDisplay.display(); return; }
-    // Legacy face presets remain protocol-compatible, but the OLED now uses
-    // that slot for useful robot information instead of an animated face.
-    if (gDisplayMode == DisplayMode::Face) drawRobotInfo();
-    else if (gDisplayMode == DisplayMode::Info) drawRobotInfo();
-    else drawSensorInfo();
+    // The OLED is Alpha's face. Information appears only while an AI toolbox
+    // is actively producing live data.
+    gDisplayMode = DisplayMode::Face;
+    if (gConversationSpeakingVisual) gFaceAnimation = "TALKING";
+    else if (gConversationThinkingVisual) gFaceAnimation = "PROCESSING";
+    else if (gConversationListeningVisual) gFaceAnimation = "LISTENING";
+    else gFaceAnimation = "IDLE";
+    if (gConversationThinkingVisual && gOledReplyMood.isEmpty())
+        gFaceEmotion = gThinkingEmotion;
+    else if (gConversationListeningVisual && gOledReplyMood.isEmpty())
+        gFaceEmotion = gListeningEmotion;
+    else if (!gConversationSpeakingVisual && !gConversationThinkingVisual &&
+             !gConversationListeningVisual)
+        gFaceEmotion = gIdleEmotion;
+    drawFace();
     gDisplay.display();
 }
 

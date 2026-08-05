@@ -466,6 +466,13 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         gOledLiveDetail.replace("_", " ");
         gOledLiveDetail.toUpperCase();
         addRealtimeLog(String("AI toolbox: ") + toolbox);
+    } else if (!strcmp(eventType, "toolbox.display")) {
+        JsonObject display = event["display"].as<JsonObject>();
+        gOledAiTitle = String(display["title"] | "AI TOOLBOX");
+        gOledToolPrimary = String(display["primary"] | "WORKING");
+        gOledToolSecondary = String(display["secondary"] | "");
+        gOledToolDetail = String(display["detail"] | "");
+        gOledConsoleUntilMs = millis() + 15000UL;
     } else if (!strcmp(eventType, "speaker.verified")) {
         const char *name = event["name"] | "Owner";
         const char *role = event["role"] | "owner";
@@ -609,6 +616,7 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         JsonObject sound = presentation["sound"].as<JsonObject>();
         JsonObject display = presentation["display"].as<JsonObject>();
         gOledReplyMood = String(presentation["mood"] | "neutral");
+        gFaceEmotion = presentationEmotion(gOledReplyMood);
         gOledAiTitle = String(display["title"] | "Z2");
         gOledAiAccent = String(display["accent"] | "neutral");
         gOledAiSymbol = String(display["symbol"] | "*");
@@ -644,6 +652,9 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         Serial.printf("[Z2 CHAT] reply emotion=%s\n", gRealtimeReplyEmotion.c_str());
         addRealtimeLog(String("Reply emotion: ") + gRealtimeReplyEmotion);
     } else if (!strcmp(eventType, "reply.audio.start")) {
+        // Return from temporary toolbox information to the AI-designed face
+        // when Alpha begins speaking.
+        gOledLiveDetail = "";
         gRealtimeReplyAudioBytes = 0;
         gOledReplyAudioBytes = 0;
         gRealtimeAudioEnded = false;

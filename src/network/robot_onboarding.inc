@@ -136,25 +136,18 @@ bool syncManagedRobotConfig()
         gListeningEmotion = parseEmotion(String(device["listening_expression"] | "CURIOUS"), FaceEmotion::Curious);
         gThinkingEmotion = parseEmotion(String(device["thinking_expression"] | "CURIOUS"), FaceEmotion::Curious);
         gSpeakingEmotion = parseEmotion(String(device["speaking_expression"] | "HAPPY"), FaceEmotion::Happy);
-        gOledHomeToolbox = String(device["oled_home_toolbox"] | "VOICE");
-        gOledHomeToolbox.toUpperCase();
-        const String controlDisplay = String(device["control_display_mode"] | "SENSORS");
-        gControlDisplayMode = controlDisplay == "INFO" ? DisplayMode::Info : DisplayMode::Sensors;
-        const String systemDisplay = String(device["system_display_mode"] | "INFO");
-        gSystemDisplayMode = systemDisplay == "SENSORS" ? DisplayMode::Sensors : DisplayMode::Info;
+        // The OLED is always the robot face except during setup and temporary
+        // AI-toolbox activity. Legacy cloud display modes are ignored.
+        gDisplayMode = DisplayMode::Face;
         gPreferences.putUChar("sensitivity", gLightSensitivity);
         gPreferences.putUShort("off-lux", gAutoOffLux);
 
         if (presentation.isNull()) {
             String displayMode = device["display_mode"] | "FACE";
             displayMode.toUpperCase();
-            if (gOledHomeToolbox == "CONTROL") gDisplayMode = gControlDisplayMode;
-            else if (gOledHomeToolbox == "SYSTEM") gDisplayMode = gSystemDisplayMode;
-            else {
-                gDisplayMode = DisplayMode::Face;
-                gIdleEmotion = parseEmotion(displayMode, FaceEmotion::Neutral);
-                gFaceEmotion = gIdleEmotion;
-            }
+            gDisplayMode = DisplayMode::Face;
+            gIdleEmotion = parseEmotion(displayMode, FaceEmotion::Neutral);
+            gFaceEmotion = gIdleEmotion;
             Serial.printf("[Z2 ONBOARD] legacy display=%s\n", displayMode.c_str());
         }
         String ledMode = String(device["led_mode"] | "AUTO");
