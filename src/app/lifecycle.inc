@@ -210,6 +210,7 @@ void setup()
         gAutoDriveEnabled = true;
         gCollisionWarningLatched = false;
         gSafetyStopActive = false;
+        requestPresentation(PresentationOwner::Control, gPresetControlAuto, "auto");
         startAutoState(AutoDriveState::Cruise);
         gServer.send(200, "application/json",
                      "{\"enabled\":true,\"state\":\"CRUISE\"}");
@@ -441,6 +442,8 @@ void loop()
             const float stoppedAtCm = gDistanceCm;
             stopMotors();
             gSafetyStopActive = true;
+            requestPresentation(PresentationOwner::Safety,
+                                gPresetSafetyObstacle, "obstacle", false);
             Serial.printf("[Z2 SAFETY] emergency stop at %.1f cm\n", stoppedAtCm);
             if (!gAutoDriveEnabled) playCollisionWarning();
             else gCollisionWarningLatched = true;

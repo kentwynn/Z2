@@ -7,10 +7,10 @@ void updateTrafficLight()
                         startupAge >= 1200);
         return;
     }
-    if (gCliffRecoveryActive) {
+    if (gCliffHazardActive || gCliffRecoveryActive) {
         setTrafficLight(false, (now / 140) % 2, false);
     } else if (gSafetyStopActive) {
-        setTrafficLight(true, false, false);
+        setTrafficLight(false, (now / 180) % 2, false);
     } else if (touchReactionActive()) {
         setTrafficLight(false, (now / 180) % 2, false);
     } else if (gTrafficLightOverride != "AUTO" &&

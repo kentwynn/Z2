@@ -68,6 +68,16 @@ void handleControlMessage(websockets::WebsocketsMessage message)
         addRealtimeLog("Control channel connected");
         return;
     }
+    if (!strcmp(eventType, "config.updated")) {
+        const uint32_t version = event["config_version"] | 0;
+        if (version > gManagedConfigVersion) {
+            gRobotConfigSyncRequested = true;
+            gLastRobotConfigPollMs = 0;
+            closeRealtimeConversation("API configuration updated");
+            addRealtimeLog(String("Config v") + version + " update received");
+        }
+        return;
+    }
     if (!strcmp(eventType, "device.event.ack")) return;
     if (!strcmp(eventType, "speaker.enrollment.ready")) {
         requestPresentation(PresentationOwner::Identity,

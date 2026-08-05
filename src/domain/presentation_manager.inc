@@ -59,6 +59,14 @@ void refreshPresentation(PresentationOwner changedOwner, bool playEntrySound)
 
 void requestPresentation(PresentationOwner owner, const PresentationPreset &preset, const char *event, bool playEntrySound)
 {
+    if (owner == PresentationOwner::Control || owner == PresentationOwner::Interaction ||
+        owner == PresentationOwner::Safety) {
+        // A live physical reaction must be visible immediately. Temporary AI
+        // toolbox text must not cover the eyes while Z2 moves, is touched, or
+        // responds to a safety event.
+        gOledConsoleUntilMs = 0;
+        gOledLiveDetail = "";
+    }
     auto &slot = gPresentationSlots[static_cast<uint8_t>(owner)];
     const bool changed = !slot.active || slot.event != event;
     slot.active = true; slot.preset = preset; slot.event = event;

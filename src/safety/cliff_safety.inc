@@ -19,6 +19,17 @@ bool touchReactionActive()
 
 void updateTouchReaction()
 {
+    // Cliff danger is exclusive. Do not queue a lower-priority contact
+    // reaction that could appear or sound immediately after the cliff clears.
+    if (gCliffHazardActive || gCliffRecoveryActive) {
+        gTouchContactActive = false;
+        gLastTouchReactionMs = 0;
+        auto &interactionPresentation =
+            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
+        if (interactionPresentation.active && interactionPresentation.event == "near_presence")
+            clearPresentation(PresentationOwner::Interaction);
+        return;
+    }
     if (gMoving) return;
     bool veryClose = gUltrasonicValid &&
         gLatestDistanceCm <= kTouchReactionDistanceCm;
@@ -31,19 +42,19 @@ void updateTouchReaction()
         const bool firstContact = !gTouchContactActive;
         gLastTouchReactionMs = now;
         gTouchContactActive = true;
-        auto &safetyPresentation =
-            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
+        auto &interactionPresentation =
+            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
         if (firstContact &&
-            (!safetyPresentation.active || safetyPresentation.event == "proximity"))
-            requestPresentation(PresentationOwner::Safety,
-                                gPresetSafetyProximity, "proximity");
+            (!interactionPresentation.active || interactionPresentation.event == "near_presence"))
+            requestPresentation(PresentationOwner::Interaction,
+                                gPresetInteractionTouch, "near_presence");
     } else if (gTouchContactActive &&
                millis() - gLastTouchReactionMs > kTouchReactionHoldMs) {
         gTouchContactActive = false;
-        auto &safetyPresentation =
-            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
-        if (safetyPresentation.active && safetyPresentation.event == "proximity")
-            clearPresentation(PresentationOwner::Safety);
+        auto &interactionPresentation =
+            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
+        if (interactionPresentation.active && interactionPresentation.event == "near_presence")
+            clearPresentation(PresentationOwner::Interaction);
     }
 }
 
@@ -68,6 +79,37 @@ void updateCliffSensors()
     }
 
     const bool anyCliff = gCliffDetected[0] || gCliffDetected[1];
+    constexpr unsigned long kCliffWarningRepeatMs = 1200;
+    if (anyCliff) {
+        if (!gCliffHazardActive) {
+            gCliffHazardActive = true;
+            gLastCliffWarningMs = now;
+            gTouchContactActive = false;
+            gLastTouchReactionMs = 0;
+            auto &interactionPresentation =
+                gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
+            if (interactionPresentation.active && interactionPresentation.event == "near_presence")
+                clearPresentation(PresentationOwner::Interaction);
+            requestPresentation(PresentationOwner::Safety,
+                                gPresetSafetyCliff, "cliff");
+            Serial.printf("[Z2 CLIFF] hazard active left=%d right=%d\n",
+                          gCliffDetected[0], gCliffDetected[1]);
+        } else if (now - gLastCliffWarningMs >= kCliffWarningRepeatMs) {
+            gLastCliffWarningMs = now;
+            if (gCapabilitySpeaker && gPresetSafetyCliff.sound != "OFF")
+                playSound(gPresetSafetyCliff.sound);
+        }
+    } else if (gCliffHazardActive) {
+        gCliffHazardActive = false;
+        gLastCliffWarningMs = 0;
+        Serial.println("[Z2 CLIFF] hazard clear");
+        if (!gCliffRecoveryActive) {
+            auto &safetyPresentation =
+                gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
+            if (safetyPresentation.active && safetyPresentation.event == "cliff")
+                clearPresentation(PresentationOwner::Safety);
+        }
+    }
     if (!anyCliff) {
         if (gCliffClearStartedMs == 0) gCliffClearStartedMs = now;
         if (!gCliffRecoveryActive && now - gCliffClearStartedMs >= 300) {
@@ -84,6 +126,12 @@ void updateCliffSensors()
             stopMotors();
             gCliffRecoveryActive = false;
             gSafetyStopActive = rearBlocked;
+            if (!gCliffHazardActive && !rearBlocked) {
+                auto &safetyPresentation =
+                    gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
+                if (safetyPresentation.active && safetyPresentation.event == "cliff")
+                    clearPresentation(PresentationOwner::Safety);
+            }
             Serial.printf("[Z2 CLIFF] recovery complete rear=%s\n",
                           rearBlocked ? "BLOCKED" : "clear");
         }

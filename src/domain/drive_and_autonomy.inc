@@ -12,7 +12,7 @@ bool applyDrive(char command, int speed)
     const bool cliffBlocked = (gCliffDetected[0] || gCliffDetected[1]) &&
         command != 'B' && command != 'S';
     if (cliffBlocked) {
-        requestPresentation(PresentationOwner::Safety, gPresetSafetyCliff, "cliff");
+        requestPresentation(PresentationOwner::Safety, gPresetSafetyCliff, "cliff", false);
         stopMotors();
         gSafetyStopActive = true;
         Serial.printf("[Z2 SAFETY] command=%c blocked by cliff left=%d right=%d\n",
@@ -27,7 +27,7 @@ bool applyDrive(char command, int speed)
     uint8_t blockedTof = 0;
     const bool tofBlocked = tofBlocksCommand(command, blockedTof);
     if (ultrasonicBlocked || tofBlocked) {
-        requestPresentation(PresentationOwner::Safety, gPresetSafetyObstacle, "obstacle");
+        requestPresentation(PresentationOwner::Safety, gPresetSafetyObstacle, "obstacle", false);
         stopMotors();
         gSafetyStopActive = true;
         if (tofBlocked) {
@@ -46,7 +46,8 @@ bool applyDrive(char command, int speed)
     // A previous block in another direction must not keep the traffic light
     // red when this newly requested direction is clear and accepted.
     gSafetyStopActive = false;
-    clearPresentation(PresentationOwner::Safety);
+    if (!gCliffHazardActive)
+        clearPresentation(PresentationOwner::Safety);
 
     const int full = constrain(speed, 0, 255);
     int left = 0;
@@ -72,9 +73,13 @@ bool applyDrive(char command, int speed)
     gCommand = command;
     gMoving = true;
     gLastDriveCommandMs = millis();
-    if (command == 'F') requestPresentation(PresentationOwner::Control, gPresetControlForward, "forward", false);
+    if (command == 'F') requestPresentation(PresentationOwner::Control, gPresetControlForward, "forward");
     else if (command == 'B') requestPresentation(PresentationOwner::Control, gPresetControlReverse, "reverse");
-    else requestPresentation(PresentationOwner::Control, gPresetControlTurn, "turn", false);
+    else if (command == 'L' || command == 'X')
+        requestPresentation(PresentationOwner::Control, gPresetControlLeft, "left");
+    else if (command == 'R' || command == 'Y')
+        requestPresentation(PresentationOwner::Control, gPresetControlRight, "right");
+    else requestPresentation(PresentationOwner::Control, gPresetControlTurn, "turn");
     Serial.printf("[Z2] command=%c speed=%d left=%d right=%d\n",
                   command, full, left, right);
     return true;
@@ -146,8 +151,6 @@ uint16_t autoRangeMm(uint8_t index)
 
 void startAutoState(AutoDriveState state)
 {
-    if (state == AutoDriveState::Reverse && gReverseSound != "OFF" && gSpeakerReady)
-        playSound(gReverseSound);
     gAutoDriveState = state;
     gAutoStateStartedMs = millis();
     Serial.printf("[Z2 AUTO] state=%s\n", autoDriveStateName());

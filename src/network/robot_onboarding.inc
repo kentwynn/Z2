@@ -103,6 +103,8 @@ bool syncManagedRobotConfig()
             loadPreset(presentation["control_forward"].as<JsonObject>(), gPresetControlForward);
             loadPreset(presentation["control_reverse"].as<JsonObject>(), gPresetControlReverse);
             loadPreset(presentation["control_turn"].as<JsonObject>(), gPresetControlTurn);
+            loadPreset(presentation["control_left"].as<JsonObject>(), gPresetControlLeft);
+            loadPreset(presentation["control_right"].as<JsonObject>(), gPresetControlRight);
             loadPreset(presentation["control_auto"].as<JsonObject>(), gPresetControlAuto);
             loadPreset(presentation["safety_cliff"].as<JsonObject>(), gPresetSafetyCliff);
             loadPreset(presentation["safety_obstacle"].as<JsonObject>(), gPresetSafetyObstacle);
@@ -175,16 +177,23 @@ void pollManagedRobotConfig()
 {
     constexpr unsigned long kConfigPollIntervalMs = 30000;
     const unsigned long now = millis();
-    if (now - gLastRobotConfigPollMs < kConfigPollIntervalMs || gMoving ||
-        gRealtimeSocket.available() ||
+    if ((!gRobotConfigSyncRequested &&
+         now - gLastRobotConfigPollMs < kConfigPollIntervalMs) || gMoving ||
+        gRealtimeSocket.available() || gVoiceDetected ||
         gRealtimeState != RealtimeChatState::WakeListening)
         return;
     gLastRobotConfigPollMs = now;
-    if (syncManagedRobotConfig() && gRobotConfigChanged) {
+    if (syncManagedRobotConfig()) {
+        gRobotConfigSyncRequested = false;
+    }
+    if (gRobotConfigChanged) {
         addRealtimeLog(String("Config v") + gManagedConfigVersion +
-                       " faces: listen=" + gPresetVoiceListening.oled +
-                       " think=" + gPresetVoiceThinking.oled +
-                       " speak=" + gPresetVoiceSpeaking.oled);
+                       " contact=" + gPresetInteractionTouch.oled + "/" +
+                       gPresetInteractionTouch.animation + "/" +
+                       gPresetInteractionTouch.sound + " cliff=" +
+                       gPresetSafetyCliff.oled + "/" +
+                       gPresetSafetyCliff.animation + "/" +
+                       gPresetSafetyCliff.sound);
         closeRealtimeConversation("API configuration updated");
         gRobotConfigChanged = false;
     }
@@ -351,6 +360,7 @@ void pollRobotCommands()
                  !gCliffDetected[0] && !gCliffDetected[1]) {
             stopMotors(); gAutoDriveEnabled = true;
             gCollisionWarningLatched = false; gSafetyStopActive = false;
+            requestPresentation(PresentationOwner::Control, gPresetControlAuto, "auto");
             startAutoState(AutoDriveState::Cruise);
             executed = true;
         } else {

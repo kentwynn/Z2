@@ -61,6 +61,7 @@ struct RealtimePresentationNote {
 RealtimePresentationNote gRealtimePresentationNotes[4];
 volatile uint8_t gRealtimePresentationNoteCount = 0;
 volatile bool gRealtimePresentationSoundReady = false;
+volatile bool gRealtimeEndAfterPlayback = false;
 uint8_t gRealtimePresentationSoundVolume = 0;
 constexpr uint8_t kRealtimeLogCount = 16;
 String gRealtimeLog[kRealtimeLogCount];
@@ -114,8 +115,14 @@ void realtimePlaybackTask(void *)
             gWakeAudioWrite = 0;
             gWakeAudioCaptureActive = false;
             gRealtimeFollowUpStartedMs = millis();
-            setRealtimeState(RealtimeChatState::FollowUp,
-                             "listening for follow-up");
+            if (gRealtimeEndAfterPlayback) {
+                // The API intentionally ended the conversational session.
+                // Socket teardown stays in the main loop to avoid racing the
+                // WebSocket poller from this audio playback task.
+            } else {
+                setRealtimeState(RealtimeChatState::FollowUp,
+                                 "listening for follow-up");
+            }
         }
     }
 }
@@ -292,6 +299,7 @@ void closeRealtimeConversation(const char *reason)
     gRealtimeSpeechFrames = 0;
     gRealtimePresentationSoundReady = false;
     gRealtimePresentationNoteCount = 0;
+    gRealtimeEndAfterPlayback = false;
     // Leave a short socket-free maintenance window for configuration/status
     // HTTPS before the proven preconnected voice channel is re-armed.
     gRealtimeLastConnectAttemptMs = millis();
@@ -511,6 +519,8 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         const char *wakeWord = event["wake_word"] | gManagedWakeWord.c_str();
         addRealtimeLog(String("Owner enrollment armed: say ") + wakeWord + " (" + saved +
                        "/" + required + ")");
+    } else if (!strcmp(eventType, "speaker.introduction.ready")) {
+        addRealtimeLog("Person introduction ready - new person should speak now");
     } else if (!strcmp(eventType, "speaker.enrollment.sample")) {
         const int saved = event["sample_count"] | 0;
         const int required = event["required_samples"] | 3;
@@ -562,6 +572,9 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         if (reply.length() > 180) reply = reply.substring(0, 177) + "...";
         if (reply.length()) addRealtimeLog(String("Z2: ") + reply);
         gRealtimePresentationSoundReady = gRealtimePresentationNoteCount > 0;
+    } else if (!strcmp(eventType, "session.end")) {
+        gRealtimeEndAfterPlayback = true;
+        addRealtimeLog("Conversation ending after reply playback");
     }
     if (!strcmp(eventType, "connected")) {
         // The callback runs inside WebSocketsClient::loop(). Queue the outbound
@@ -836,6 +849,10 @@ void updateRealtimeConversation()
 {
     if (!Z2_REALTIME_ENABLED) return;
     gRealtimeSocket.poll();
+    if (gRealtimeEndAfterPlayback && !gRealtimeSpeakerActive) {
+        closeRealtimeConversation("conversation ended");
+        return;
+    }
     if (controlLeaseActive()) {
         if (gRealtimeSocket.available() ||
             gRealtimeState != RealtimeChatState::WakeListening)

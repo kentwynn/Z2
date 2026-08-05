@@ -180,9 +180,16 @@ void drawFace()
             pending = nullptr;
             bitmap = shown;
         }
+    } else if (gFaceAnimation == "PULSE") {
+        const unsigned long phase = now % 1200UL;
+        if (phase < 140UL) bitmap = Irisoled::wink_left;
+        else if (phase >= 600UL && phase < 740UL) bitmap = Irisoled::wink_right;
+    } else if (gFaceAnimation == "ALERT") {
+        if (now % 700UL < 120UL) bitmap = Irisoled::surprised;
+    } else if (gFaceAnimation == "TALKING") {
+        if (now % 360UL < 100UL) bitmap = Irisoled::blink_up;
     } else {
-        // One calm natural blink every five seconds. This applies consistently
-        // to idle, listening, thinking, and speaking without random gaze jumps.
+        // One calm natural blink every five seconds.
         const unsigned long blinkPhase = now % 5000UL;
         if (blinkPhase < 100UL) bitmap = Irisoled::blink_down;
         else if (blinkPhase < 200UL) bitmap = Irisoled::blink;
@@ -333,17 +340,16 @@ void updateOled()
     // The OLED is Alpha's face. Information appears only while an AI toolbox
     // is actively producing live data.
     gDisplayMode = DisplayMode::Face;
+    // Conversation state temporarily owns the face. Otherwise preserve the
+    // presentation selected by Interaction, Control, Safety, Identity or Idle;
+    // overwriting it here used to erase touch/movement faces every 100 ms.
     if (gConversationSpeakingVisual) gFaceAnimation = "TALKING";
     else if (gConversationThinkingVisual) gFaceAnimation = "PROCESSING";
     else if (gConversationListeningVisual) gFaceAnimation = "LISTENING";
-    else gFaceAnimation = "IDLE";
     if (gConversationThinkingVisual && gOledReplyMood.isEmpty())
         gFaceEmotion = gThinkingEmotion;
     else if (gConversationListeningVisual && gOledReplyMood.isEmpty())
         gFaceEmotion = gListeningEmotion;
-    else if (!gConversationSpeakingVisual && !gConversationThinkingVisual &&
-             !gConversationListeningVisual)
-        gFaceEmotion = gIdleEmotion;
     drawFace();
     gDisplay.display();
 }

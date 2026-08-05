@@ -71,7 +71,7 @@ constexpr uint16_t kTofWarningDistanceMm = 250;
 // collision protection below remains at the wider 10 cm emergency threshold.
 constexpr float kTouchReactionDistanceCm = 6.0f;
 constexpr uint16_t kTouchReactionDistanceMm = 60;
-constexpr unsigned long kTouchReactionHoldMs = 1400;
+constexpr unsigned long kTouchReactionHoldMs = 2500;
 
 constexpr uint8_t kOledSclPin = 42;
 constexpr uint8_t kOledSdaPin = 47;
@@ -144,11 +144,26 @@ enum class PresentationOwner : uint8_t { Idle, Identity, Voice, Control, Interac
 struct PresentationPreset { String oled; String sound; String animation; };
 struct PresentationSlot { bool active = false; PresentationPreset preset; String event; };
 PresentationSlot gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Count)];
-PresentationPreset gPresetIdle, gPresetVoiceListening, gPresetVoiceThinking, gPresetVoiceSpeaking;
-PresentationPreset gPresetControlForward, gPresetControlReverse, gPresetControlTurn, gPresetControlAuto;
-PresentationPreset gPresetSafetyCliff, gPresetSafetyObstacle, gPresetSafetyProximity, gPresetSystemConnecting, gPresetSystemError;
-PresentationPreset gPresetIdentityVerified, gPresetIdentityUnknown, gPresetIdentityEnrollment;
-PresentationPreset gPresetInteractionTouch;
+PresentationPreset gPresetIdle{"FACE", "OFF", "IDLE"};
+PresentationPreset gPresetVoiceListening{"ALERT", "OFF", "LISTENING"};
+PresentationPreset gPresetVoiceThinking{"FOCUSED", "OFF", "PROCESSING"};
+PresentationPreset gPresetVoiceSpeaking{"HAPPY", "OFF", "TALKING"};
+PresentationPreset gPresetControlForward{"FOCUSED", "OFF", "STATIC"};
+PresentationPreset gPresetControlReverse{"FOCUSED", "DOUBLE", "STATIC"};
+PresentationPreset gPresetControlTurn{"FOCUSED", "OFF", "STATIC"};
+PresentationPreset gPresetControlAuto{"FOCUSED", "OFF", "STATIC"};
+PresentationPreset gPresetControlLeft{"FOCUSED", "OFF", "STATIC"};
+PresentationPreset gPresetControlRight{"FOCUSED", "OFF", "STATIC"};
+PresentationPreset gPresetSafetyCliff{"ALERT", "BEEP", "ALERT"};
+PresentationPreset gPresetSafetyObstacle{"ALERT", "BEEP", "ALERT"};
+PresentationPreset gPresetSafetyProximity{"ALERT", "BEEP", "ALERT"};
+PresentationPreset gPresetSystemConnecting{"ALERT", "BEEP", "ALERT"};
+PresentationPreset gPresetSystemError{"ALERT", "BEEP", "ALERT"};
+PresentationPreset gPresetIdentityVerified{"HAPPY", "CHIRP", "STATIC"};
+PresentationPreset gPresetIdentityUnknown{"CURIOUS", "OFF", "STATIC"};
+PresentationPreset gPresetIdentityEnrollment{"CURIOUS", "CHIRP", "STATIC"};
+// Legacy config name; shares the one contact-safety presentation.
+PresentationPreset gPresetInteractionTouch{"ALERT", "BEEP", "ALERT"};
 String gFaceAnimation = "IDLE";
 // Fail closed until a successfully authenticated API configuration is loaded.
 bool gToolboxControlEnabled = false;
@@ -202,6 +217,7 @@ uint16_t gControlVoiceSuspendSeconds = 20;
 unsigned long gControlLeaseUntilMs = 0;
 uint32_t gManagedConfigVersion = 0;
 bool gRobotConfigChanged = false;
+bool gRobotConfigSyncRequested = false;
 unsigned long gLastRobotConfigPollMs = 0;
 
 const char *activeRobotToken();
@@ -211,6 +227,7 @@ bool syncManagedRobotConfig();
 bool reportRobotStatus();
 void pollManagedRobotConfig();
 void pollRobotCommands();
+void playSound(const String &requestedName);
 void saveRobotDeviceToken(const String &token);
 bool gRobotConfigSynced = false;
 unsigned long gLastDriveCommandMs = 0;
@@ -319,9 +336,11 @@ bool gCliffDetected[2] = {false, false};
 bool gCliffRawHigh[2] = {false, false};
 uint8_t gCliffDebounce[2] = {0, 0};
 bool gCliffRecoveryActive = false;
+bool gCliffHazardActive = false;
 bool gCliffArmed = true;
 unsigned long gCliffRecoveryStartedMs = 0;
 unsigned long gCliffClearStartedMs = 0;
+unsigned long gLastCliffWarningMs = 0;
 unsigned long gLastCliffReadMs = 0;
 unsigned long gLastUltrasonicReadMs = 0;
 unsigned long gLastValidEchoMs = 0;
