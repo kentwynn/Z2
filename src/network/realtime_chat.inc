@@ -412,8 +412,8 @@ void handleRealtimeSocketEvent(websockets::WebsocketsEvent type, String detail)
             closeRealtimeConversation("WebSocket disconnected");
         // Unexpected transport loss should not create a five-second deaf
         // period. Reconnect on the next application-loop iteration.
-        if (!wasExpectedClose && millis() >= 5000UL)
-            gRealtimeLastConnectAttemptMs = millis() - 5000UL;
+        if (!wasExpectedClose && millis() >= 1500UL)
+            gRealtimeLastConnectAttemptMs = millis() - 1500UL;
     }
 }
 
@@ -889,7 +889,7 @@ void updateRealtimeConversation()
     }
     if (gRealtimeState == RealtimeChatState::WakeListening &&
         !gRealtimeSocket.available() &&
-        now - gRealtimeLastConnectAttemptMs >= 5000) {
+        now - gRealtimeLastConnectAttemptMs >= 1500) {
         beginRealtimeConnection();
         return;
     }
