@@ -100,7 +100,7 @@ main() {
         echo "Error: PlatformIO OTA uploader not found." >&2
         exit 1
       }
-      "$pio_python" "$espota_script" -i "${Z2_OTA_HOST:-z2.local}" \
+      "$pio_python" "$espota_script" -i "${Z2_OTA_HOST:-z2-001.local}" \
         -p 3232 -a "$OTA_PASSWORD" -f "$PROJECT_DIR/.pio/build/z2/firmware.bin" -r
       ;;
     help|-h|--help) usage ;;

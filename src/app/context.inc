@@ -317,11 +317,22 @@ constexpr uint32_t kVoiceMeterFullScale = 300000;
 // remaining above ordinary room noise.
 constexpr uint32_t kVoiceMinimumRms = (kVoiceMeterFullScale * 15U) / 100U;
 
+uint32_t voiceSpeechOnThreshold()
+{
+    const float sensitivity = constrain(Z2_WAKE_WORD_SENSITIVITY, 0.0f, 1.0f);
+    // Higher sensitivity lowers both the absolute and noise-relative gates.
+    // At the default 0.65 this remains safely above the measured 20-25k idle
+    // floor while retaining quieter first syllables of the wake phrase.
+    const float minimumScale = 1.20f - (0.50f * sensitivity);
+    const float floorScale = 2.30f - (1.00f * sensitivity);
+    return max<uint32_t>(
+        static_cast<uint32_t>(kVoiceMinimumRms * minimumScale),
+        static_cast<uint32_t>(gMicrophoneFloor * floorScale));
+}
+
 bool microphoneSpeechNow()
 {
-    const uint32_t speechOn = max<uint32_t>(
-        kVoiceMinimumRms, gMicrophoneFloor * 2U);
-    return gMicrophoneRms >= speechOn;
+    return gMicrophoneRms >= voiceSpeechOnThreshold();
 }
 
 int gSpeed = 180;

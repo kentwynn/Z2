@@ -103,7 +103,7 @@ void updateMicrophone()
         return;
     }
 
-    const uint32_t speechOn = max<uint32_t>(kVoiceMinimumRms, gMicrophoneFloor * 2U);
+    const uint32_t speechOn = voiceSpeechOnThreshold();
     const uint32_t speechOff = max<uint32_t>(
         (kVoiceMinimumRms * 3U) / 5U,
         (gMicrophoneFloor * 4U) / 3U);

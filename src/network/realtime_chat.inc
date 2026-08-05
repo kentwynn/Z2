@@ -46,6 +46,7 @@ String gRealtimeReplyEmotion = "HAPPY";
 uint8_t gRealtimeSpeechFrames = 0;
 size_t gRealtimeReplyAudioBytes = 0;
 unsigned long gRealtimeLastConnectAttemptMs = 0;
+unsigned long gRealtimeLastKeepaliveMs = 0;
 struct RealtimePresentationNote {
     uint16_t frequencyHz = 0;
     uint16_t durationMs = 0;
@@ -343,6 +344,7 @@ void cancelRealtimeRecordingForProximity()
 void handleRealtimeSocketEvent(websockets::WebsocketsEvent type, String detail)
 {
     if (type == websockets::WebsocketsEvent::ConnectionOpened) {
+        gRealtimeLastKeepaliveMs = millis();
         Serial.println("[Z2 CHAT] secure WebSocket connected");
         addRealtimeLog("API WebSocket connected securely");
         return;
@@ -408,7 +410,28 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         gOledLiveDetail.toUpperCase();
         addRealtimeLog(String("AI toolbox: ") + toolbox);
     } else if (!strcmp(eventType, "speaker.verified")) {
-        // Identity is context for Qwen's reply.presentation, not a local style rule.
+        const char *name = event["name"] | "Owner";
+        const char *role = event["role"] | "owner";
+        const float confidence = event["confidence"] | 0.0f;
+        addRealtimeLog(
+            String(!strcmp(role, "owner") ? "Owner verified: " : "Speaker verified: ") +
+            name + " · confidence " + String(confidence, 3) +
+            " · AI designing reaction"
+        );
+        // Qwen receives the verified identity before generating reply.presentation;
+        // firmware deliberately does not hard-code colors, faces, or sounds here.
+    } else if (!strcmp(eventType, "speaker.deferred")) {
+        const unsigned long minimumMs = event["minimum_audio_ms"] | 1000UL;
+        addRealtimeLog(String("Voice verification deferred: need ") +
+                       minimumMs + " ms · retrying on next speech");
+    } else if (!strcmp(eventType, "speaker.retry")) {
+        const int remaining = event["attempts_remaining"] | 0;
+        String detail = "Voice not confirmed yet";
+        if (!event["confidence"].isNull())
+            detail += String(": confidence ") +
+                      String(event["confidence"].as<float>(), 3);
+        detail += String(" · ") + remaining + " retries left";
+        addRealtimeLog(detail);
     } else if (!strcmp(eventType, "speaker.unknown") || !strcmp(eventType, "speaker.unavailable")) {
         if (!event["confidence"].isNull()) {
             addRealtimeLog(
@@ -429,9 +452,21 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         const int required = event["required_samples"] | 3;
         addRealtimeLog(String("Owner voice sample saved: ") + saved + "/" +
                        required + " - say " + gManagedWakeWord + " again");
+        gRealtimePreviousVoice = false;
+        gWakeAudioSize = 0;
+        gWakeAudioWrite = 0;
+        gWakeAudioCaptureActive = false;
+        setRealtimeState(RealtimeChatState::WakeListening,
+                         "owner enrollment - next sample");
     } else if (!strcmp(eventType, "speaker.enrollment.complete")) {
         requestPresentation(PresentationOwner::Identity, gPresetIdentityVerified, "verified");
         addRealtimeLog("Owner voice enrollment complete");
+        gRealtimePreviousVoice = false;
+        gWakeAudioSize = 0;
+        gWakeAudioWrite = 0;
+        gWakeAudioCaptureActive = false;
+        setRealtimeState(RealtimeChatState::WakeListening,
+                         "owner enrollment complete");
     } else if (!strcmp(eventType, "speaker.enrollment.error")) {
         const char *message = event["message"] | "Enrollment failed";
         addRealtimeLog(String("Owner enrollment error: ") + message);
@@ -529,6 +564,10 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         addRealtimeLog(String("Speaker PCM complete: ") +
                        gRealtimeReplyAudioBytes + " bytes");
         gRealtimeAudioEnded = true;
+    } else if (!strcmp(eventType, "stage.timing")) {
+        const char *stage = event["stage"] | "unknown";
+        const unsigned long durationMs = event["duration_ms"] | 0UL;
+        addRealtimeLog(String("Timing ") + stage + ": " + durationMs + " ms");
     } else if (!strcmp(eventType, "error")) {
         const char *code = event["code"] | "unknown";
         Serial.printf("[Z2 CHAT] API error=%s\n", code);
@@ -612,8 +651,7 @@ void handleRealtimeMicrophoneFrame(const int32_t *samples, size_t sampleCount,
         // Use the sensitive speech threshold for continuation so quiet words
         // are retained. The four-frame debounce below rejects isolated room
         // noise spikes without requiring later syllables to be unusually loud.
-        const uint32_t speechOn = max<uint32_t>(
-            kVoiceMinimumRms, gMicrophoneFloor * 2U);
+        const uint32_t speechOn = voiceSpeechOnThreshold();
         if (gMicrophoneRms >= speechOn) {
             if (gRealtimeSpeechFrames < 4) ++gRealtimeSpeechFrames;
             if (gRealtimeSpeechFrames >= 4)
@@ -638,7 +676,9 @@ void setupRealtimeConversation()
 {
     // The preconnected voice socket streams the utterance live. Keep only the
     // short attack pre-roll needed to preserve the first consonant.
-    const size_t requested = 4096;
+    const size_t requested =
+        (Z2_INPUT_AUDIO_SAMPLE_RATE * sizeof(int16_t) *
+         Z2_WAKE_AUDIO_PREROLL_MS) / 1000U;
     gWakeAudio = static_cast<uint8_t *>(ps_malloc(requested));
     if (gWakeAudio) gWakeAudioCapacity = requested;
     else {
@@ -678,6 +718,12 @@ void updateRealtimeConversation()
         startRealtimeRecording(true);
     }
     const unsigned long now = millis();
+    if (gRealtimeState == RealtimeChatState::WakeListening &&
+        gRealtimeSocket.available() &&
+        now - gRealtimeLastKeepaliveMs >= 15000UL) {
+        if (gRealtimeSocket.send("{\"type\":\"session.keepalive\"}"))
+            gRealtimeLastKeepaliveMs = now;
+    }
     if (gRealtimeState == RealtimeChatState::WakeListening &&
         !gRealtimeSocket.available() &&
         now - gRealtimeLastConnectAttemptMs >= 5000) {
