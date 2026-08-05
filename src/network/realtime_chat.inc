@@ -514,8 +514,9 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
     } else if (!strcmp(eventType, "speaker.enrollment.sample")) {
         const int saved = event["sample_count"] | 0;
         const int required = event["required_samples"] | 3;
+        const char *prompt = event["prompt"] | gManagedWakeWord.c_str();
         addRealtimeLog(String("Owner voice sample saved: ") + saved + "/" +
-                       required + " - say " + gManagedWakeWord + " again");
+                       required + " - say: " + prompt);
         gRealtimePreviousVoice = false;
         gWakeAudioSize = 0;
         gWakeAudioWrite = 0;
@@ -534,6 +535,16 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
     } else if (!strcmp(eventType, "speaker.enrollment.error")) {
         const char *message = event["message"] | "Enrollment failed";
         addRealtimeLog(String("Owner enrollment error: ") + message);
+    } else if (!strcmp(eventType, "speaker.enrollment.retry")) {
+        const char *prompt = event["prompt"] | gManagedWakeWord.c_str();
+        addRealtimeLog(String("Enrollment sample too short - say full sentence: ") +
+                       prompt);
+        gRealtimePreviousVoice = false;
+        gWakeAudioSize = 0;
+        gWakeAudioWrite = 0;
+        gWakeAudioCaptureActive = false;
+        setRealtimeState(RealtimeChatState::WakeListening,
+                         "owner enrollment - retry full sentence");
     } else if (!strcmp(eventType, "wake.rejected")) {
         const char *text = event["transcript"] | "";
         addRealtimeLog(String("Wake rejected. Heard: ") +

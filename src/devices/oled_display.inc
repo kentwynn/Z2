@@ -1,4 +1,4 @@
-void drawFace()
+void drawLegacyFace()
 {
     // Animation behavior is cloud/toolbox-owned. A STATIC face must remain
     // static; only the explicitly configured IDLE animation adds a blink.
@@ -121,6 +121,74 @@ void drawFace()
     // speaking remain visible through gaze, blink, and eye-shape animation;
     // extra meters, status dots, or a mouth make the tiny display look like a
     // diagnostic panel instead of a robot face.
+}
+
+const unsigned char *irisBitmapForEmotion(FaceEmotion emotion)
+{
+    switch (emotion) {
+    case FaceEmotion::Happy: return Irisoled::happy;
+    case FaceEmotion::Curious: return Irisoled::alert;
+    case FaceEmotion::Sleepy: return Irisoled::sleepy;
+    case FaceEmotion::Surprised: return Irisoled::surprised;
+    case FaceEmotion::Excited: return Irisoled::excited;
+    case FaceEmotion::Sad: return Irisoled::sad;
+    case FaceEmotion::Love: return Irisoled::happy;
+    case FaceEmotion::Confused: return Irisoled::disoriented;
+    case FaceEmotion::Thinking: return Irisoled::focused;
+    case FaceEmotion::Angry: return Irisoled::angry;
+    case FaceEmotion::Alert: return Irisoled::alert;
+    case FaceEmotion::Focused: return Irisoled::focused;
+    case FaceEmotion::Furious: return Irisoled::furious;
+    case FaceEmotion::Scared: return Irisoled::scared;
+    case FaceEmotion::Worried: return Irisoled::worried;
+    case FaceEmotion::Bored: return Irisoled::bored;
+    case FaceEmotion::Despair: return Irisoled::despair;
+    default: return Irisoled::normal;
+    }
+}
+
+void drawFace()
+{
+    const unsigned long now = millis();
+    const unsigned char *target = irisBitmapForEmotion(gFaceEmotion);
+    if (gCommand == 'L' || gCommand == 'X') target = Irisoled::look_left;
+    else if (gCommand == 'R' || gCommand == 'Y') target = Irisoled::look_right;
+    else if (gFaceAnimation == "LISTENING") target = Irisoled::alert;
+    else if (gFaceAnimation == "PROCESSING") target = Irisoled::focused;
+
+    // Bitmap expressions cannot geometrically interpolate, so transition
+    // through IrisOLED's eyelid frames. State entry always starts at phase 0
+    // instead of selecting an arbitrary frame from the global boot clock.
+    static const unsigned char *shown = nullptr;
+    static const unsigned char *pending = nullptr;
+    static unsigned long transitionStartedMs = 0;
+    if (!shown) shown = target;
+    if (pending && target == shown) pending = nullptr;
+    if (target != shown && target != pending) {
+        pending = target;
+        transitionStartedMs = now;
+    }
+    const unsigned char *bitmap = shown;
+    if (pending) {
+        const unsigned long elapsed = now - transitionStartedMs;
+        if (elapsed < 100UL) bitmap = shown;
+        else if (elapsed < 200UL) bitmap = Irisoled::blink_down;
+        else if (elapsed < 300UL) bitmap = Irisoled::blink;
+        else if (elapsed < 400UL) bitmap = Irisoled::blink_up;
+        else {
+            shown = pending;
+            pending = nullptr;
+            bitmap = shown;
+        }
+    } else {
+        // One calm natural blink every five seconds. This applies consistently
+        // to idle, listening, thinking, and speaking without random gaze jumps.
+        const unsigned long blinkPhase = now % 5000UL;
+        if (blinkPhase < 100UL) bitmap = Irisoled::blink_down;
+        else if (blinkPhase < 200UL) bitmap = Irisoled::blink;
+        else if (blinkPhase < 300UL) bitmap = Irisoled::blink_up;
+    }
+    gDisplay.drawBitmap(0, 0, bitmap, 128, 64, SSD1306_WHITE);
 }
 
 void drawRobotInfo()

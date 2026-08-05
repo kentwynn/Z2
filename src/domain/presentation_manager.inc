@@ -24,6 +24,14 @@ FaceEmotion presentationEmotion(String value)
     if (value == "CONFUSED") return FaceEmotion::Confused;
     if (value == "THINKING") return FaceEmotion::Thinking;
     if (value == "ANGRY") return FaceEmotion::Angry;
+    if (value == "ALERT") return FaceEmotion::Alert;
+    if (value == "FOCUSED") return FaceEmotion::Focused;
+    if (value == "FURIOUS") return FaceEmotion::Furious;
+    if (value == "SCARED" || value == "AFRAID") return FaceEmotion::Scared;
+    if (value == "WORRIED" || value == "ANXIOUS") return FaceEmotion::Worried;
+    if (value == "BORED") return FaceEmotion::Bored;
+    if (value == "DESPAIR") return FaceEmotion::Despair;
+    if (value == "CALM" || value == "CONTENT") return FaceEmotion::Neutral;
     return FaceEmotion::Neutral;
 }
 

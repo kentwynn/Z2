@@ -69,6 +69,22 @@ void handleControlMessage(websockets::WebsocketsMessage message)
         return;
     }
     if (!strcmp(eventType, "device.event.ack")) return;
+    if (!strcmp(eventType, "speaker.enrollment.ready")) {
+        requestPresentation(PresentationOwner::Identity,
+                            gPresetIdentityEnrollment, "enrollment");
+        const int saved = event["sample_count"] | 0;
+        const int required = event["required_samples"] | 3;
+        const char *wakeWord = event["wake_word"] | gManagedWakeWord.c_str();
+        const char *prompt = event["prompt"] | wakeWord;
+        addRealtimeLog(String("Owner enrollment armed ") + saved + "/" +
+                       required + " - say: " + prompt);
+        return;
+    }
+    if (!strcmp(eventType, "speaker.enrollment.cancelled")) {
+        clearPresentation(PresentationOwner::Identity);
+        addRealtimeLog("Owner voice enrollment cancelled");
+        return;
+    }
     if (!strcmp(eventType, "device.command")) {
         String payload;
         serializeJson(event["command"], payload);

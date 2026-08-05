@@ -8,6 +8,7 @@
 #include <ESPmDNS.h>
 #include <DNSServer.h>
 #include <HTTPClient.h>
+#include <Irisoled.h>
 #include <Preferences.h>
 #include <VL53L0X.h>
 #include <VL53L1X.h>
@@ -135,7 +136,8 @@ enum class AmbientCondition : uint8_t {
 enum class DisplayMode : uint8_t { Off, Face, Info, Sensors };
 enum class FaceEmotion : uint8_t {
     Neutral, Happy, Curious, Sleepy, Surprised, Excited,
-    Sad, Love, Confused, Thinking, Angry
+    Sad, Love, Confused, Thinking, Angry, Alert, Focused,
+    Furious, Scared, Worried, Bored, Despair
 };
 enum class AutoDriveState : uint8_t { Off, Cruise, TurnLeft, TurnRight, Reverse };
 enum class PresentationOwner : uint8_t { Idle, Identity, Voice, Control, Interaction, System, Safety, Count };
