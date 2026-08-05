@@ -124,6 +124,16 @@ void updateControlChannel()
     gControlSocket.poll();
     const unsigned long now = millis();
     if (gControlSocket.available()) {
+        // Flush outside WebSocket callbacks to avoid re-entering the client.
+        // The bounded queue keeps diagnostics useful without affecting control.
+        if (gCloudDiagnosticQueueSize) {
+            const String detail = gCloudDiagnosticQueue[gCloudDiagnosticQueueHead];
+            sendDeviceEvent("Diagnostics", "Device log", detail);
+            gCloudDiagnosticQueue[gCloudDiagnosticQueueHead] = "";
+            gCloudDiagnosticQueueHead =
+                (gCloudDiagnosticQueueHead + 1) % kCloudDiagnosticQueueCount;
+            --gCloudDiagnosticQueueSize;
+        }
         // A compact one-second snapshot lets server-side AI tools answer from
         // Redis without opening a request socket or interrupting voice audio.
         static unsigned long lastTelemetryMs = 0;
@@ -132,15 +142,32 @@ void updateControlChannel()
             JsonDocument message;
             message["type"] = "device.telemetry";
             JsonObject telemetry = message["telemetry"].to<JsonObject>();
+            telemetry["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+            telemetry["motors_ready"] =
+                gVirtualPowerOn && !gSafetyStopActive && !gCliffRecoveryActive;
             telemetry["sonar_cm"] = gUltrasonicValid ? gLatestDistanceCm : -1;
             telemetry["sonar_valid"] = gUltrasonicValid;
             JsonArray tof = telemetry["tof_mm"].to<JsonArray>();
             for (uint8_t index = 0; index < kTofCount; ++index)
                 tof.add(gTofValid[index] ? gTofDistanceMm[index] : -1);
+            JsonArray tofReady = telemetry["tof_ready"].to<JsonArray>();
+            JsonArray tofValid = telemetry["tof_valid"].to<JsonArray>();
+            JsonArray tofType = telemetry["tof_type"].to<JsonArray>();
+            for (uint8_t index = 0; index < kTofCount; ++index) {
+                tofReady.add(gTofReady[index]);
+                tofValid.add(gTofValid[index]);
+                tofType.add(gTofType[index] == 1 ? "L0X" :
+                            gTofType[index] == 2 ? "L1X" : "unknown");
+            }
             JsonArray cliff = telemetry["cliff"].to<JsonArray>();
             cliff.add(gCliffDetected[0]); cliff.add(gCliffDetected[1]);
             telemetry["light_lux"] = gAmbientLux;
             telemetry["light_sensor_ready"] = gLightSensorReady;
+            telemetry["microphone_ready"] = gMicrophoneReady;
+            telemetry["speaker_ready"] = gSpeakerReady;
+            telemetry["display_ready"] = gOledReady;
+            telemetry["led_ring_mode"] = ringModeName();
+            telemetry["led_ring_brightness"] = gRing.getBrightness();
             telemetry["moving"] = gMoving;
             telemetry["direction"] = String(gCommand);
             telemetry["virtual_power"] = gVirtualPowerOn;
@@ -153,6 +180,12 @@ void updateControlChannel()
             capabilities["speaker"] = gCapabilitySpeaker && gSpeakerReady;
             capabilities["led_ring"] = gCapabilityLedRing;
             capabilities["traffic_light"] = true;
+            telemetry["all_systems_good"] =
+                WiFi.status() == WL_CONNECTED && gVirtualPowerOn &&
+                gUltrasonicValid && gTofReady[0] && gTofReady[1] &&
+                gTofReady[2] && !gCliffDetected[0] && !gCliffDetected[1] &&
+                gLightSensorReady && gMicrophoneReady && gSpeakerReady &&
+                gOledReady;
             String payload;
             serializeJson(message, payload);
             gControlSocket.send(payload);

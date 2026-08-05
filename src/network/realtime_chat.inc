@@ -60,6 +60,10 @@ constexpr uint8_t kRealtimeLogCount = 16;
 String gRealtimeLog[kRealtimeLogCount];
 uint8_t gRealtimeLogWrite = 0;
 uint8_t gRealtimeLogSize = 0;
+constexpr uint8_t kCloudDiagnosticQueueCount = 16;
+String gCloudDiagnosticQueue[kCloudDiagnosticQueueCount];
+uint8_t gCloudDiagnosticQueueHead = 0;
+uint8_t gCloudDiagnosticQueueSize = 0;
 
 void setRealtimeState(RealtimeChatState state, const char *reason);
 
@@ -172,6 +176,17 @@ void addRealtimeLog(const String &message)
         (seconds % 60 < 10 ? "0" : "") + String(seconds % 60) + "  " + message;
     gRealtimeLogWrite = (gRealtimeLogWrite + 1) % kRealtimeLogCount;
     if (gRealtimeLogSize < kRealtimeLogCount) ++gRealtimeLogSize;
+    if (gCloudDiagnosticQueueSize == kCloudDiagnosticQueueCount) {
+        gCloudDiagnosticQueue[gCloudDiagnosticQueueHead] = "";
+        gCloudDiagnosticQueueHead =
+            (gCloudDiagnosticQueueHead + 1) % kCloudDiagnosticQueueCount;
+        --gCloudDiagnosticQueueSize;
+    }
+    const uint8_t tail =
+        (gCloudDiagnosticQueueHead + gCloudDiagnosticQueueSize) %
+        kCloudDiagnosticQueueCount;
+    gCloudDiagnosticQueue[tail] = message.substring(0, 220);
+    ++gCloudDiagnosticQueueSize;
 }
 
 const char *realtimeStateName()
@@ -507,6 +522,14 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
     } else if (!strcmp(eventType, "wake.detected")) {
         setRealtimeState(RealtimeChatState::Waiting,
                          "wake accepted - waiting for API reply");
+    } else if (!strcmp(eventType, "wake.ready")) {
+        gRealtimeFollowUpStartedMs = millis();
+        gRealtimePreviousVoice = false;
+        gWakeAudioSize = 0;
+        gWakeAudioWrite = 0;
+        gWakeAudioCaptureActive = false;
+        setRealtimeState(RealtimeChatState::FollowUp,
+                         "wake accepted - listening for request");
     } else if (!strcmp(eventType, "reply.emotion")) {
         gRealtimeReplyEmotion = String(event["emotion"] | "neutral");
         gRealtimeReplyEmotion.toUpperCase();
