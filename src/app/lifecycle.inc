@@ -302,7 +302,10 @@ void setup()
         JsonDocument document;
         document["configured"] = Z2_REALTIME_ENABLED && hasConfiguredRealtimeToken();
         document["state"] = realtimeStateName();
-        document["voice"] = microphoneSpeechNow();
+        // Match the debounced WebRTC decision used by the conversation state
+        // machine. Raw RMS crosses the adaptive gate frame-by-frame and made
+        // the dashboard indicator flicker.
+        document["voice"] = gVoiceDetected;
         document["name"] = gManagedRobotName;
         document["robot_id"] = Z2_ROBOT_ID;
         document["wake_word"] = gManagedWakeWord;
@@ -321,7 +324,7 @@ void setup()
                      String("{\"ready\":") + (gMicrophoneReady ? "true" : "false") +
                      ",\"calibrated\":" +
                      (gMicrophoneCalibrationFrames >= kMicrophoneCalibrationFrameCount ? "true" : "false") +
-                     ",\"voice\":" + (microphoneSpeechNow() ? "true" : "false") +
+                     ",\"voice\":" + (gVoiceDetected ? "true" : "false") +
                      ",\"level\":" + gMicrophoneRms +
                      ",\"peak\":" + gMicrophonePeak +
                      ",\"floor\":" + gMicrophoneFloor + "}");
