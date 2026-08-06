@@ -159,16 +159,12 @@ PresentationPreset gPresetSafetyObstacle{"ALERT", "BEEP", "ALERT"};
 PresentationPreset gPresetSafetyProximity{"ALERT", "BEEP", "ALERT"};
 PresentationPreset gPresetSystemConnecting{"ALERT", "BEEP", "ALERT"};
 PresentationPreset gPresetSystemError{"ALERT", "BEEP", "ALERT"};
-PresentationPreset gPresetIdentityVerified{"HAPPY", "CHIRP", "STATIC"};
-PresentationPreset gPresetIdentityUnknown{"CURIOUS", "OFF", "STATIC"};
-PresentationPreset gPresetIdentityEnrollment{"CURIOUS", "CHIRP", "STATIC"};
 // Legacy config name; shares the one contact-safety presentation.
 PresentationPreset gPresetInteractionTouch{"ALERT", "BEEP", "ALERT"};
 String gFaceAnimation = "IDLE";
 // Fail closed until a successfully authenticated API configuration is loaded.
 bool gToolboxControlEnabled = false;
 bool gToolboxVoiceEnabled = false;
-bool gToolboxIdentityEnabled = false;
 FaceEmotion gListeningEmotion = FaceEmotion::Curious;
 FaceEmotion gThinkingEmotion = FaceEmotion::Curious;
 FaceEmotion gSpeakingEmotion = FaceEmotion::Happy;

@@ -124,7 +124,6 @@ bool syncManagedRobotConfig()
         if (!toolboxes.isNull()) {
             gToolboxControlEnabled = toolboxes["control"] | true;
             gToolboxVoiceEnabled = toolboxes["voice"] | true;
-            gToolboxIdentityEnabled = toolboxes["identity"] | true;
         }
         auto loadPreset = [](JsonObject source, PresentationPreset &target) {
             if (source.isNull()) return;
@@ -148,9 +147,6 @@ bool syncManagedRobotConfig()
             loadPreset(presentation["safety_proximity"].as<JsonObject>(), gPresetSafetyProximity);
             loadPreset(presentation["system_connecting"].as<JsonObject>(), gPresetSystemConnecting);
             loadPreset(presentation["system_error"].as<JsonObject>(), gPresetSystemError);
-            loadPreset(presentation["identity_verified"].as<JsonObject>(), gPresetIdentityVerified);
-            loadPreset(presentation["identity_unknown"].as<JsonObject>(), gPresetIdentityUnknown);
-            loadPreset(presentation["identity_enrollment"].as<JsonObject>(), gPresetIdentityEnrollment);
             loadPreset(presentation["interaction_touch"].as<JsonObject>(), gPresetInteractionTouch);
             gReverseSound = gPresetControlReverse.sound;
             gCollisionSound = gPresetSafetyObstacle.sound;
