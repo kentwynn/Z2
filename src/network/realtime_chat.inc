@@ -869,6 +869,8 @@ void updateRealtimeConversation()
     }
     if (gRealtimeWakeAcknowledgementPending) {
         gRealtimeWakeAcknowledgementPending = false;
+        // Idle wake listening stays silent. Play one acknowledgement only
+        // after the API has accepted the wake phrase and armed follow-up.
         playWakeAcknowledgement();
         gRealtimeMicResumeAtMs = millis() + 150UL;
         gVoiceDetected = false;
@@ -883,8 +885,6 @@ void updateRealtimeConversation()
     if (gRealtimeWakeRejectionPending) {
         gRealtimeWakeRejectionPending = false;
         playWakeRejection();
-        delay(80);
-        playWakeAcknowledgement();
         gRealtimeMicResumeAtMs = millis() + 150UL;
         gVoiceDetected = false;
         gVoiceAttackFrames = 0;

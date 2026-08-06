@@ -114,4 +114,40 @@ void startOta()
     gOtaReady = true;
     Serial.printf("[Z2 OTA] ready at %s.local:3232\n", kHostName);
 }
+
+void handleUsbOtaProvisioning()
+{
+    static String command;
+    while (Serial.available()) {
+        const char value = static_cast<char>(Serial.read());
+        if (value == '\r') continue;
+        if (value != '\n') {
+            if (command.length() < 160) command += value;
+            continue;
+        }
+        constexpr char prefix[] = "Z2_OTA_PROVISION ";
+        if (command.startsWith(prefix)) {
+            String password = command.substring(sizeof(prefix) - 1);
+            password.trim();
+            const String existing = gRobotPreferences.getString("ota-pass", "");
+            bool valid = password.length() >= 24 && password.length() <= 96;
+            for (size_t index = 0; valid && index < password.length(); ++index) {
+                const char c = password[index];
+                valid = isAlphaNumeric(c) || c == '-' || c == '_';
+            }
+            if (!existing.isEmpty()) {
+                Serial.println("[Z2 OTA] OTA_ALREADY_PROVISIONED");
+            } else if (!valid) {
+                Serial.println("[Z2 OTA] OTA_PROVISION_REJECTED");
+            } else if (gRobotPreferences.putString("ota-pass", password) > 0) {
+                Serial.println("[Z2 OTA] OTA_PROVISIONED");
+                startOta();
+            } else {
+                Serial.println("[Z2 OTA] OTA_PROVISION_FAILED");
+            }
+            password = "";
+        }
+        command = "";
+    }
+}
 } // namespace

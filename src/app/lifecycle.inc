@@ -418,6 +418,9 @@ void setup()
 
 void loop()
 {
+    // OTA credentials are accepted only over the physical USB serial link and
+    // only while no credential exists. The secret is never echoed.
+    handleUsbOtaProvisioning();
     // Audio capture is latency-sensitive. Service the I2S RX DMA before any
     // HTTP or WebSocket polling so the always-on control channel cannot delay
     // VAD long enough to miss a short wake phrase.

@@ -180,11 +180,11 @@ The first OTA-enabled firmware installation must use USB:
 ./z2.sh flash
 ```
 
-After secure device onboarding has installed a device-scoped OTA credential,
-export it for the current terminal and update wirelessly with:
+The first USB flash installs a random device-scoped OTA credential over the
+physical serial link and saves the matching secret in macOS Keychain. Update
+wirelessly afterward without copying or exporting a password:
 
 ```bash
-export Z2_OTA_PASSWORD='device-scoped-password'
 ./z2.sh ota
 ```
 

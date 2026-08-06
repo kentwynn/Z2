@@ -16,6 +16,7 @@ Commands:
   monitor        Open the Z2 serial monitor
   flash-monitor  Upload, then open the serial monitor
   ota            Build and upload wirelessly to z2.local
+  provision-ota  Install the one-time OTA credential over USB
 
 Optional: set Z2_PORT=/dev/cu.usbmodem... to select a specific board.
 EOF
@@ -29,11 +30,32 @@ require_setup() {
 }
 
 read_ota_password() {
-  OTA_PASSWORD="${Z2_OTA_PASSWORD:-}"
+  OTA_PASSWORD="${Z2_OTA_PASSWORD:-$(security find-generic-password -s com.kentwynn.z2.ota -a z2-001 -w 2>/dev/null || true)}"
   if [[ ${#OTA_PASSWORD} -lt 12 ]]; then
     echo "Error: set Z2_OTA_PASSWORD to the device-scoped OTA credential issued during onboarding." >&2
     exit 1
   fi
+}
+
+provision_ota() {
+  resolve_port
+  local generated_password pio_python existing_password provision_status
+  existing_password="$(security find-generic-password -s com.kentwynn.z2.ota -a z2-001 -w 2>/dev/null || true)"
+  generated_password="${existing_password:-$(openssl rand -hex 24)}"
+  pio_python="$(sed -n '1s/^#!//p' "$PIO_BIN")"
+  provision_status=0
+  "$pio_python" "$PROJECT_DIR/scripts/provision_ota.py" \
+    --port "$PORT" --password "$generated_password" || provision_status=$?
+  if [[ $provision_status -eq 2 && -z "$existing_password" ]]; then
+    echo "Error: Z2 already has an OTA password but this Mac has no matching Keychain entry." >&2
+    echo "Use USB recovery to explicitly rotate it; refusing to overwrite automatically." >&2
+    exit 1
+  fi
+  [[ $provision_status -eq 0 || $provision_status -eq 2 ]] || exit "$provision_status"
+  security add-generic-password -U -s com.kentwynn.z2.ota -a z2-001 \
+    -w "$generated_password" >/dev/null
+  generated_password=""
+  echo "OTA credential saved in macOS Keychain; future ./z2.sh ota needs no export."
 }
 
 resolve_port() {
@@ -72,7 +94,11 @@ main() {
   require_setup
   case "$1" in
     build) run_pio run -e z2 ;;
-    flash) resolve_port; run_pio run -e z2 -t upload --upload-port "$PORT" ;;
+    flash)
+      resolve_port
+      run_pio run -e z2 -t upload --upload-port "$PORT"
+      provision_ota
+      ;;
     monitor) resolve_port; run_pio device monitor -b "$BAUD" --port "$PORT" ;;
     flash-monitor)
       resolve_port
@@ -92,6 +118,7 @@ main() {
       "$pio_python" "$espota_script" -i "${Z2_OTA_HOST:-z2-001.local}" \
         -p 3232 -a "$OTA_PASSWORD" -f "$PROJECT_DIR/.pio/build/z2/firmware.bin" -r
       ;;
+    provision-ota) provision_ota ;;
     help|-h|--help) usage ;;
     *) echo "Unknown command: $1" >&2; usage; exit 1 ;;
   esac

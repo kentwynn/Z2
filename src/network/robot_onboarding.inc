@@ -8,6 +8,43 @@ bool hasConfiguredRealtimeToken()
     return gRobotConfigSynced && gRobotDeviceToken.startsWith("rk_");
 }
 
+bool syncManagedOtaCredential()
+{
+    if (WiFi.status() != WL_CONNECTED || !gRobotDeviceToken.startsWith("rk_"))
+        return false;
+    const String localPassword = gRobotPreferences.getString("ota-pass", "");
+    WiFiClientSecure client;
+    client.setCACert(kKentWynnRootCa);
+    HTTPClient request;
+    request.setConnectTimeout(800);
+    request.setTimeout(1500);
+    if (!request.begin(client, "https://api.kentwynn.com/v1/robot/ota-credential"))
+        return false;
+    request.addHeader("X-AI-Token", activeRobotToken());
+    request.addHeader("Content-Type", "application/json");
+    JsonDocument body;
+    if (!localPassword.isEmpty()) body["ota_password"] = localPassword;
+    String serialized;
+    serializeJson(body, serialized);
+    const int status = localPassword.isEmpty() ? request.GET() : request.POST(serialized);
+    if (status != HTTP_CODE_OK) {
+        request.end();
+        return false;
+    }
+    JsonDocument response;
+    const DeserializationError error = deserializeJson(response, request.getString());
+    request.end();
+    const String managedPassword = response["ota_password"] | "";
+    if (error || managedPassword.length() < 24) return false;
+    if (managedPassword != localPassword) {
+        gRobotPreferences.putString("ota-pass", managedPassword);
+        Serial.println("[Z2 OTA] managed credential synchronized; active after reboot");
+    } else {
+        Serial.println("[Z2 OTA] managed credential synchronized");
+    }
+    return true;
+}
+
 void loadRobotOnboardingState()
 {
     gRobotPreferences.begin("z2-robot", false);
@@ -167,6 +204,7 @@ bool syncManagedRobotConfig()
                           receivedVersion != gManagedConfigVersion;
     gManagedConfigVersion = receivedVersion;
     gRobotConfigSynced = true;
+    syncManagedOtaCredential();
     Serial.printf("[Z2 ONBOARD] config synced name=%s wake=%s language=%s\n",
                   gManagedRobotName.c_str(), gManagedWakeWord.c_str(),
                   gManagedLanguage.c_str());
