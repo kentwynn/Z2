@@ -489,7 +489,6 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
     } else if (!strcmp(eventType, "speech.rejected")) {
         addRealtimeLog("Ignored uncertain audio - listening again");
     } else if (!strcmp(eventType, "error")) {
-        requestPresentation(PresentationOwner::System, gPresetSystemError, "error");
         const char *message = event["message"] | "";
         if (message[0]) addRealtimeLog(String("API error: ") + message);
     } else if (!strcmp(eventType, "reply.complete")) {
@@ -625,6 +624,10 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         const char *code = event["code"] | "unknown";
         Serial.printf("[Z2 CHAT] API error=%s\n", code);
         closeRealtimeConversation("API error");
+        // Keep the failure visible after closeRealtimeConversation resets the
+        // voice state. Reconnect loops must never produce warning sounds.
+        requestPresentation(PresentationOwner::System, gPresetSystemError,
+                            "error", false);
     }
 }
 
@@ -810,8 +813,9 @@ void updateRealtimeConversation()
     }
     if (gRealtimeWakeRejectionPending) {
         gRealtimeWakeRejectionPending = false;
-        playWakeRejection();
-        gRealtimeMicResumeAtMs = millis() + 150UL;
+        // A rejected wake is routine, not an alarm. Keep the state/face/log
+        // feedback but rearm silently and without an audio-tail delay.
+        gRealtimeMicResumeAtMs = millis();
         gVoiceDetected = false;
         gVoiceAttackFrames = 0;
         gLastVoiceMs = 0;
