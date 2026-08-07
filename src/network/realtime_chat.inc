@@ -110,11 +110,18 @@ void realtimePlaybackTask(void *)
             gRealtimeMicResumeAtMs = millis() + kPostPlaybackMicGuardMs;
             gVoiceDetected = false;
             gVoiceAttackFrames = 0;
+            gLastVoiceMs = 0;
+            resetVoiceVad();
             gRealtimePreviousVoice = false;
             gWakeAudioSize = 0;
             gWakeAudioWrite = 0;
             gWakeAudioCaptureActive = false;
             gRealtimeFollowUpStartedMs = millis();
+            // Playback ended cleanly and the DMA queue was cleared above. Do
+            // not require another silence edge: the first real user phrase
+            // after the short amplifier-tail guard should open recording.
+            gRealtimeFollowUpNeedsSilence = false;
+            gRealtimeFollowUpSilenceStartedMs = 0;
             if (gRealtimeEndAfterPlayback) {
                 // The API intentionally ended the conversational session.
                 // Socket teardown stays in the main loop to avoid racing the
@@ -243,6 +250,7 @@ const char *realtimeStateName()
 void setRealtimeState(RealtimeChatState state, const char *reason)
 {
     gRealtimeState = state;
+    gRealtimeFollowUpAttack = state == RealtimeChatState::FollowUp;
     gOledConsoleUntilMs = millis() + 15000UL;
     switch (state) {
     case RealtimeChatState::Connecting:

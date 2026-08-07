@@ -154,9 +154,13 @@ void updateMicrophone()
     const bool speechFrame = gVoiceVadReady
         ? (vadDecisionReady && vadSpeech && gMicrophoneRms >= vadEnergyGate)
         : gMicrophoneRms >= speechOn;
+    const uint8_t requiredAttackFrames =
+        gRealtimeFollowUpAttack
+            ? kFollowUpVoiceAttackRequiredFrames
+            : kVoiceAttackRequiredFrames;
     if (speechFrame) {
-        if (gVoiceAttackFrames < kVoiceAttackRequiredFrames) ++gVoiceAttackFrames;
-        if (gVoiceAttackFrames >= kVoiceAttackRequiredFrames) {
+        if (gVoiceAttackFrames < requiredAttackFrames) ++gVoiceAttackFrames;
+        if (gVoiceAttackFrames >= requiredAttackFrames) {
             gVoiceDetected = true;
             gLastVoiceMs = now;
         }

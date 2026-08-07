@@ -351,8 +351,16 @@ constexpr uint16_t kMicrophoneCalibrationFrameCount = 50;
 // Require a sustained voice attack rather than allowing a short desk tap,
 // motor click, Wi-Fi noise burst, or room transient to open an STT turn.
 constexpr uint8_t kVoiceAttackRequiredFrames = 15;
+// A follow-up begins only after an accepted wake or a completed reply, so it
+// can use a shorter attack than idle wake listening. This preserves quick
+// phrases such as "bye bye" without making ambient noise easier to wake Z2.
+constexpr uint8_t kFollowUpVoiceAttackRequiredFrames = 7;
+bool gRealtimeFollowUpAttack = false;
 constexpr unsigned long kVoiceHangoverMs = 1000;
-constexpr unsigned long kPostPlaybackMicGuardMs = 700;
+// The I2S DMA queue is explicitly cleared when playback ends. A short guard is
+// enough for the amplifier tail; 700 ms made the UI say FOLLOW_UP while the
+// microphone was still deaf to a natural immediate response.
+constexpr unsigned long kPostPlaybackMicGuardMs = 250;
 constexpr uint32_t kVoiceMeterFullScale = 300000;
 // Z2 currently measures roughly 15k RMS at idle with a 22k calibrated floor.
 // A 40k base combined with the adaptive floor gate starts near 33-34k at the
