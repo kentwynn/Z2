@@ -44,6 +44,7 @@ bool gRealtimeExpectedClose = false;
 bool gRealtimeRecordingIsWake = false;
 bool gRealtimeWakeAcknowledgementPending = false;
 bool gRealtimeWakeRejectionPending = false;
+bool gRealtimeSpeechRetryPending = false;
 unsigned long gAiMotionStopAtMs = 0;
 String gRealtimeReplyEmotion = "HAPPY";
 uint8_t gRealtimeSpeechFrames = 0;
@@ -127,8 +128,14 @@ void realtimePlaybackTask(void *)
                 // Socket teardown stays in the main loop to avoid racing the
                 // WebSocket poller from this audio playback task.
             } else {
-                setRealtimeState(RealtimeChatState::FollowUp,
-                                 "listening for follow-up");
+                // Shared-room default: every user turn must start with the
+                // wake phrase. Ambient conversation after a reply must never
+                // become an unlimited chain of STT/model requests.
+                gRealtimeFollowUpAttack = false;
+                gRealtimeFollowUpNeedsSilence = false;
+                gRealtimeFollowUpSilenceStartedMs = 0;
+                setRealtimeState(RealtimeChatState::WakeListening,
+                                 "reply complete - wake phrase required");
             }
         }
     }
@@ -326,6 +333,7 @@ void closeRealtimeConversation(const char *reason)
     gRealtimeSessionPending = false;
     gRealtimeVoicePending = false;
     gRealtimeStartRecordingPending = false;
+    gRealtimeSpeechRetryPending = false;
     gRealtimeSpeechFrames = 0;
     gRealtimePresentationSoundReady = false;
     gRealtimePresentationNoteCount = 0;
@@ -579,11 +587,20 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         gWakeAudioSize = 0;
         gWakeAudioWrite = 0;
         gWakeAudioCaptureActive = false;
-        gRealtimeWakeAcknowledgementPending = true;
+        // speech.rejected is immediately followed by wake.ready. On that
+        // recovery path retain the required clean-silence edge and stay
+        // silent; otherwise residual VAD/noise opens another recording loop.
+        if (gRealtimeSpeechRetryPending) {
+            gRealtimeSpeechRetryPending = false;
+            gRealtimeWakeAcknowledgementPending = false;
+        } else {
+            gRealtimeWakeAcknowledgementPending = true;
+        }
         setRealtimeState(RealtimeChatState::FollowUp,
                          "wake accepted - listening for request");
     } else if (!strcmp(eventType, "speech.rejected")) {
         showRealtimeVoiceEvent(FaceEmotion::Worried, "PULSE", 1400UL);
+        gRealtimeSpeechRetryPending = true;
         gRealtimeFollowUpStartedMs = millis();
         gRealtimeFollowUpNeedsSilence = true;
         gRealtimeFollowUpSilenceStartedMs = 0;

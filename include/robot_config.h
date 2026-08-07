@@ -17,8 +17,12 @@
 #define Z2_WAKE_AUDIO_PREROLL_MS 500
 #define Z2_INPUT_AUDIO_SAMPLE_RATE 16000
 #define Z2_OUTPUT_AUDIO_SAMPLE_RATE 24000
+// Preserve the proven INMP441 level. Raising this from 2x degraded Whisper
+// recognition on the physical robot even though snapshots appeared quiet.
 #define Z2_MIC_PCM_GAIN 2
-#define Z2_SILENCE_END_MS 800
+// Keep quiet trailing words ("are you doing now") instead of ending on the
+// first short energy dip. This costs at most 400 ms after speech, not during it.
+#define Z2_SILENCE_END_MS 1200
 #define Z2_MIN_WAKE_RECORDING_MS 1500
 #define Z2_MAX_WAKE_RECORDING_MS 4000
 #define Z2_MAX_RECORDING_MS 15000
