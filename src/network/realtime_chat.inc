@@ -606,7 +606,7 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
     } else if (!strcmp(eventType, "wake.rejected")) {
         showRealtimeVoiceEvent(FaceEmotion::Confused, "PULSE", 1400UL);
         gRealtimePreviousVoice = true;
-        gRealtimeFollowUpNeedsSilence = false;
+        gRealtimeFollowUpNeedsSilence = true;
         gRealtimeFollowUpSilenceStartedMs = 0;
         gWakeAudioSize = 0;
         gWakeAudioWrite = 0;
@@ -774,7 +774,8 @@ void handleRealtimeMicrophoneFrame(const int32_t *samples, size_t sampleCount,
     }
     if (!pcmBytes) return;
 
-    if (gRealtimeState == RealtimeChatState::FollowUp &&
+    if ((gRealtimeState == RealtimeChatState::FollowUp ||
+         gRealtimeState == RealtimeChatState::WakeListening) &&
         gRealtimeFollowUpNeedsSilence) {
         if (gVoiceDetected) {
             gRealtimeFollowUpSilenceStartedMs = 0;
@@ -919,7 +920,7 @@ void updateRealtimeConversation()
         gLastVoiceMs = 0;
         resetVoiceVad();
         gRealtimePreviousVoice = false;
-        gRealtimeFollowUpNeedsSilence = false;
+        gRealtimeFollowUpNeedsSilence = true;
         gRealtimeFollowUpSilenceStartedMs = 0;
         gWakeAudioSize = 0;
         gWakeAudioWrite = 0;
