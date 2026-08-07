@@ -557,10 +557,14 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
     } else if (!strcmp(eventType, "speaker.verified")) {
         const char *name = event["name"] | "Owner";
         const float confidence = event["confidence"] | 0.0f;
-        showRealtimeVoiceEvent(FaceEmotion::Love, "PULSE", 1000UL);
-        playSound("CHIRP");
+        const bool firstInSession = event["first_in_session"] | true;
+        if (firstInSession) {
+            showRealtimeVoiceEvent(FaceEmotion::Love, "PULSE", 1000UL);
+            playSound("CHIRP");
+        }
         addRealtimeLog(String("Voice verified: ") + name + " · confidence " +
-                       String(confidence, 3));
+                       String(confidence, 3) +
+                       (firstInSession ? " · welcomed" : ""));
     } else if (!strcmp(eventType, "speaker.unknown")) {
         const float confidence = event["confidence"] | 0.0f;
         showRealtimeVoiceEvent(FaceEmotion::Confused, "PULSE", 900UL);
@@ -933,7 +937,12 @@ void updateRealtimeConversation()
         now - gRealtimeLastPingMs >= 8000UL) {
         if (gRealtimeSocket.ping("z2")) gRealtimeLastPingMs = now;
     }
-    if (gRealtimeState == RealtimeChatState::WakeListening &&
+    // Phone Connect drives turns through its own WebSocket while this
+    // authenticated robot socket remains in FOLLOW_UP. Keep the robot channel
+    // alive too; otherwise its short follow-up timer can expire mid phone turn
+    // and tear down playback plus the verified phone identity.
+    if ((gRealtimeState == RealtimeChatState::WakeListening ||
+         gPhoneSessionActive) &&
         gRealtimeSocket.available() &&
         now - gRealtimeLastKeepaliveMs >= 15000UL) {
         if (gRealtimeSocket.send("{\"type\":\"session.keepalive\"}"))
