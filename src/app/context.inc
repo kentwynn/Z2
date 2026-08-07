@@ -169,6 +169,11 @@ FaceEmotion gListeningEmotion = FaceEmotion::Curious;
 FaceEmotion gThinkingEmotion = FaceEmotion::Curious;
 FaceEmotion gSpeakingEmotion = FaceEmotion::Happy;
 FaceEmotion gIdleEmotion = FaceEmotion::Neutral;
+// Short-lived voice events (wake accepted/rejected, uncertainty, transport
+// failure) temporarily override the steady conversation-state face.
+FaceEmotion gVoiceEventEmotion = FaceEmotion::Neutral;
+String gVoiceEventAnimation = "IDLE";
+unsigned long gVoiceEventUntilMs = 0;
 
 WebServer gServer(80);
 DNSServer gSetupDns;

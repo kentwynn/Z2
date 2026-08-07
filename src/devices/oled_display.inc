@@ -343,13 +343,21 @@ void updateOled()
     // Conversation state temporarily owns the face. Otherwise preserve the
     // presentation selected by Interaction, Control, Safety, Identity or Idle;
     // overwriting it here used to erase touch/movement faces every 100 ms.
-    if (gConversationSpeakingVisual) gFaceAnimation = "TALKING";
-    else if (gConversationThinkingVisual) gFaceAnimation = "PROCESSING";
-    else if (gConversationListeningVisual) gFaceAnimation = "LISTENING";
-    if (gConversationThinkingVisual && gOledReplyMood.isEmpty())
-        gFaceEmotion = gThinkingEmotion;
-    else if (gConversationListeningVisual && gOledReplyMood.isEmpty())
-        gFaceEmotion = gListeningEmotion;
+    const bool voiceEventActive =
+        static_cast<int32_t>(gVoiceEventUntilMs - millis()) > 0;
+    if (voiceEventActive) {
+        gFaceEmotion = gVoiceEventEmotion;
+        gFaceAnimation = gVoiceEventAnimation;
+    } else {
+        if (gVoiceEventUntilMs) gVoiceEventUntilMs = 0;
+        if (gConversationSpeakingVisual) gFaceAnimation = "TALKING";
+        else if (gConversationThinkingVisual) gFaceAnimation = "PROCESSING";
+        else if (gConversationListeningVisual) gFaceAnimation = "LISTENING";
+        if (gConversationThinkingVisual && gOledReplyMood.isEmpty())
+            gFaceEmotion = gThinkingEmotion;
+        else if (gConversationListeningVisual && gOledReplyMood.isEmpty())
+            gFaceEmotion = gListeningEmotion;
+    }
     drawFace();
     gDisplay.display();
 }

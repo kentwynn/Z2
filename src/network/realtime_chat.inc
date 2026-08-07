@@ -255,6 +255,8 @@ void setRealtimeState(RealtimeChatState state, const char *reason)
     switch (state) {
     case RealtimeChatState::Connecting:
         gOledLiveStatus = "CONNECT";
+        gFaceEmotion = FaceEmotion::Curious;
+        gFaceAnimation = "PULSE";
         break;
     case RealtimeChatState::Recording:
         gOledLiveStatus = "LISTEN";
@@ -262,18 +264,29 @@ void setRealtimeState(RealtimeChatState state, const char *reason)
         gOledLastHeard = "";
         gOledLastReply = "";
         gOledReplyMood = "";
+        gFaceEmotion = FaceEmotion::Alert;
+        gFaceAnimation = "LISTENING";
+        gVoiceEventUntilMs = 0;
         break;
     case RealtimeChatState::Waiting:
         gOledLiveStatus = "THINK";
+        gFaceEmotion = FaceEmotion::Focused;
+        gFaceAnimation = "PROCESSING";
         break;
     case RealtimeChatState::Speaking:
         gOledLiveStatus = "SPEAK";
+        // reply.presentation owns the emotion; firmware only supplies motion.
+        gFaceAnimation = "TALKING";
         break;
     case RealtimeChatState::FollowUp:
         gOledLiveStatus = "FOLLOW-UP";
+        gFaceEmotion = FaceEmotion::Curious;
+        gFaceAnimation = "LISTENING";
         break;
     default:
         gOledLiveStatus = "READY";
+        gFaceEmotion = gIdleEmotion;
+        gFaceAnimation = "IDLE";
         clearVoiceRingOverlay();
         break;
     }
@@ -287,6 +300,15 @@ void setRealtimeState(RealtimeChatState state, const char *reason)
     clearPresentation(PresentationOwner::System);
     Serial.printf("[Z2 CHAT] state=%s reason=%s\n", realtimeStateName(), reason);
     addRealtimeLog(String(realtimeStateName()) + " - " + reason);
+}
+
+void showRealtimeVoiceEvent(FaceEmotion emotion, const char *animation,
+                            unsigned long durationMs)
+{
+    gVoiceEventEmotion = emotion;
+    gVoiceEventAnimation = animation;
+    gVoiceEventUntilMs = millis() + durationMs;
+    gLastOledUpdateMs = 0;
 }
 
 void closeRealtimeConversation(const char *reason)
@@ -424,6 +446,8 @@ void handleRealtimeSocketEvent(websockets::WebsocketsEvent type, String detail)
             ? "API session closed normally"
             : "API WebSocket disconnected");
         gRealtimeExpectedClose = false;
+        if (!wasExpectedClose)
+            showRealtimeVoiceEvent(FaceEmotion::Worried, "ALERT", 2200UL);
         if (gRealtimeState != RealtimeChatState::WakeListening)
             closeRealtimeConversation("WebSocket disconnected");
         // Unexpected transport loss should not create a five-second deaf
@@ -506,6 +530,7 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         if (reply.length()) addRealtimeLog(String("Z2: ") + reply);
         gRealtimePresentationSoundReady = gRealtimePresentationNoteCount > 0;
     } else if (!strcmp(eventType, "session.end")) {
+        showRealtimeVoiceEvent(FaceEmotion::Happy, "PULSE", 1600UL);
         gRealtimeEndAfterPlayback = true;
         addRealtimeLog("Conversation ending after reply playback");
     }
@@ -525,9 +550,11 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
                              wakePrompt.c_str());
         }
     } else if (!strcmp(eventType, "session.timeout")) {
+        showRealtimeVoiceEvent(FaceEmotion::Bored, "PULSE", 1800UL);
         gRealtimeExpectedClose = true;
         closeRealtimeConversation(eventType);
     } else if (!strcmp(eventType, "wake.rejected")) {
+        showRealtimeVoiceEvent(FaceEmotion::Confused, "PULSE", 1400UL);
         gRealtimePreviousVoice = true;
         gRealtimeFollowUpNeedsSilence = false;
         gRealtimeFollowUpSilenceStartedMs = 0;
@@ -537,9 +564,11 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         setRealtimeState(RealtimeChatState::WakeListening,
                          "wake rejected - listening again");
     } else if (!strcmp(eventType, "wake.detected")) {
+        showRealtimeVoiceEvent(FaceEmotion::Surprised, "PULSE", 700UL);
         setRealtimeState(RealtimeChatState::Waiting,
                          "wake accepted - waiting for API reply");
     } else if (!strcmp(eventType, "wake.ready")) {
+        showRealtimeVoiceEvent(FaceEmotion::Excited, "PULSE", 900UL);
         gRealtimeFollowUpStartedMs = millis();
         // The wake phrase may still be inside the VAD hangover when this event
         // arrives. Require a clean silence/release before accepting a new
@@ -554,6 +583,7 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         setRealtimeState(RealtimeChatState::FollowUp,
                          "wake accepted - listening for request");
     } else if (!strcmp(eventType, "speech.rejected")) {
+        showRealtimeVoiceEvent(FaceEmotion::Worried, "PULSE", 1400UL);
         gRealtimeFollowUpStartedMs = millis();
         gRealtimeFollowUpNeedsSilence = true;
         gRealtimeFollowUpSilenceStartedMs = 0;
@@ -631,6 +661,7 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
     } else if (!strcmp(eventType, "error")) {
         const char *code = event["code"] | "unknown";
         Serial.printf("[Z2 CHAT] API error=%s\n", code);
+        showRealtimeVoiceEvent(FaceEmotion::Despair, "ALERT", 2500UL);
         closeRealtimeConversation("API error");
         // Keep the failure visible after closeRealtimeConversation resets the
         // voice state. Reconnect loops must never produce warning sounds.
