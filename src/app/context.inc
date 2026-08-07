@@ -234,6 +234,7 @@ bool reportRobotStatus();
 void pollManagedRobotConfig();
 void pollRobotCommands();
 void playSound(const String &requestedName);
+void interruptRealtimePlaybackForSafety();
 void saveRobotDeviceToken(const String &token);
 bool gRobotConfigSynced = false;
 unsigned long gLastDriveCommandMs = 0;

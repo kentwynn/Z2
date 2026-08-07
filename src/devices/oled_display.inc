@@ -354,7 +354,13 @@ void updateOled()
     // overwriting it here used to erase touch/movement faces every 100 ms.
     const bool voiceEventActive =
         static_cast<int32_t>(gVoiceEventUntilMs - millis()) > 0;
-    if (voiceEventActive) {
+    const bool safetyPresentationActive =
+        gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)].active;
+    if (safetyPresentationActive) {
+        // Safety owns the face absolutely, including during phone chat and
+        // streamed AI speech. applyPresentation already selected its face and
+        // animation; conversation visuals must not overwrite either value.
+    } else if (voiceEventActive) {
         gFaceEmotion = gVoiceEventEmotion;
         gFaceAnimation = gVoiceEventAnimation;
     } else {

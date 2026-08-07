@@ -59,6 +59,8 @@ void refreshPresentation(PresentationOwner changedOwner, bool playEntrySound)
 
 void requestPresentation(PresentationOwner owner, const PresentationPreset &preset, const char *event, bool playEntrySound)
 {
+    if (owner == PresentationOwner::Safety)
+        interruptRealtimePlaybackForSafety();
     if (owner == PresentationOwner::Control || owner == PresentationOwner::Interaction ||
         owner == PresentationOwner::Safety) {
         // A live physical reaction must be visible immediately. Temporary AI

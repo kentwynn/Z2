@@ -75,6 +75,27 @@ uint8_t gCloudDiagnosticQueueSize = 0;
 
 void setRealtimeState(RealtimeChatState state, const char *reason);
 
+void interruptRealtimePlaybackForSafety()
+{
+    if (!gRealtimeSpeakerActive) return;
+    gRealtimeSpeakerActive = false;
+    gRealtimeAudioEnded = false;
+    if (gRealtimeAudioBuffer) {
+        size_t discarded = 0;
+        while (void *item = xRingbufferReceiveUpTo(
+                   gRealtimeAudioBuffer, &discarded, 0, 4096))
+            vRingbufferReturnItem(gRealtimeAudioBuffer, item);
+    }
+    i2s_set_clk(kSpeakerI2sPort, Z2_INPUT_AUDIO_SAMPLE_RATE,
+                I2S_BITS_PER_SAMPLE_32BIT, I2S_CHANNEL_STEREO);
+    i2s_zero_dma_buffer(kSpeakerI2sPort);
+    setRealtimeState(gPhoneSessionActive
+        ? RealtimeChatState::FollowUp
+        : RealtimeChatState::WakeListening,
+        "reply interrupted by local safety");
+    addRealtimeLog("Local safety interrupted reply audio");
+}
+
 void realtimePlaybackTask(void *)
 {
     constexpr size_t kPlaybackPrebufferBytes = 12000; // 250 ms at 24 kHz PCM16
@@ -292,8 +313,12 @@ void setRealtimeState(RealtimeChatState state, const char *reason)
         break;
     default:
         gOledLiveStatus = "READY";
-        gFaceEmotion = gIdleEmotion;
-        gFaceAnimation = "IDLE";
+        // Wake listening is a quiet resting state. Do not carry a temporary
+        // PULSE/wink reaction from rejection, connection, or the prior turn
+        // into idle; that produced a strange alternating one-eye face.
+        gVoiceEventUntilMs = 0;
+        gFaceEmotion = FaceEmotion::Sleepy;
+        gFaceAnimation = "STATIC";
         clearVoiceRingOverlay();
         break;
     }
@@ -502,7 +527,8 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
     // Text arrives as many tiny streaming deltas. Processing them is required,
     // but logging each one pushes useful wake, transcript, audio, and error
     // events out of the dashboard's compact history.
-    if (strcmp(eventType, "reply.text.delta"))
+    // session.alive is an internal transport heartbeat, not robot activity.
+    if (strcmp(eventType, "reply.text.delta") && strcmp(eventType, "session.alive"))
         addRealtimeLog(String("API event: ") + eventType);
     if (!strcmp(eventType, "transcript.final")) {
         const char *text = event["text"] | "";
@@ -943,6 +969,7 @@ void updateRealtimeConversation()
         setRealtimeState(RealtimeChatState::Waiting, "audio ended");
     }
     if (gRealtimeState == RealtimeChatState::FollowUp &&
+        !gPhoneSessionActive &&
         now - gRealtimeFollowUpStartedMs >=
             static_cast<unsigned long>(gManagedFollowUpSeconds) * 1000UL) {
         gRealtimeExpectedClose = true;
