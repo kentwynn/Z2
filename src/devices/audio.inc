@@ -48,7 +48,7 @@ void resetVoiceVad()
 
 void updateMicrophone()
 {
-    if (!gMicrophoneReady || gRealtimeSpeakerActive ||
+    if (!gMicrophoneReady || gRealtimeSpeakerActive || gPhoneSessionActive ||
         millis() - gLastMicrophoneReadMs < 10) return;
     gLastMicrophoneReadMs = millis();
 
@@ -144,12 +144,18 @@ void updateMicrophone()
         (gMicrophoneFloor * 4U) / 3U);
     const unsigned long now = millis();
     const bool voiceWasDetected = gVoiceDetected;
-    // The permissive energy gate removes Z2's measured low-level electrical
-    // floor; WebRTC then distinguishes speech from louder non-speech noise.
-    // Neither detector can start a turn by itself.
-    const uint32_t vadEnergyGate = max<uint32_t>(
+    // Idle wake listening must use the strict adaptive energy threshold as
+    // well as WebRTC VAD. The microphone's sustained room/electrical noise can
+    // sit around 28-35k RMS and WebRTC occasionally labels it as speech; the
+    // former 1.2x-floor gate therefore opened empty four-second wake turns.
+    // Once a wake has already been confirmed, retain the more permissive gate
+    // so quiet first syllables of the actual request are not clipped.
+    const uint32_t followUpEnergyGate = max<uint32_t>(
         (kVoiceMinimumRms * 3U) / 5U,
         (gMicrophoneFloor * 6U) / 5U);
+    const uint32_t vadEnergyGate = gRealtimeFollowUpAttack
+        ? followUpEnergyGate
+        : speechOn;
     gVoiceVadEnergyGate = vadEnergyGate;
     const bool speechFrame = gVoiceVadReady
         ? (vadDecisionReady && vadSpeech && gMicrophoneRms >= vadEnergyGate)

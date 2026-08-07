@@ -192,6 +192,11 @@ void updateAmbientLight()
 
 void updateRingAnimation()
 {
+    if (gPhonePairingVisible) {
+        gRing.clear();
+        gRing.show();
+        return;
+    }
     if (gVoiceRingOverlayActive && gVoiceRingAnimation != "solid") {
         if (millis() - gLastRingAnimationMs < 30) return;
         gLastRingAnimationMs = millis();

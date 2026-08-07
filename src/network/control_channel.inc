@@ -78,6 +78,53 @@ void handleControlMessage(websockets::WebsocketsMessage message)
         }
         return;
     }
+    if (!strcmp(eventType, "phone.pairing.ready")) {
+        gPhonePairingUrl = String(event["pairing_url"] | "");
+        gPhonePairingVisible = !gPhonePairingUrl.isEmpty();
+        gPhonePairingUntilMs = millis() + 60000UL;
+        gPhoneSessionActive = false;
+        clearVoiceRingOverlay();
+        gRing.clear(); gRing.show();
+        showRealtimeVoiceEvent(FaceEmotion::Curious, "PULSE", 1200UL);
+        playSound("CHIRP");
+        addRealtimeLog("Phone pairing QR ready · RGB ring off");
+        return;
+    }
+    if (!strcmp(eventType, "phone.session.connected")) {
+        gPhonePairingVisible = false;
+        gPhoneSessionActive = true;
+        gPhonePairingUrl = "";
+        gPhonePairingUntilMs = 0;
+        const char *purpose = event["purpose"] | "phone_chat";
+        showRealtimeVoiceEvent(FaceEmotion::Excited, "PULSE", 1400UL);
+        playSound("BEEP");
+        addRealtimeLog(String(!strcmp(purpose, "owner_voice_enrollment")
+            ? "Owner enrollment phone connected"
+            : "Phone microphone connected · onboard microphone suspended"));
+        return;
+    }
+    if (!strcmp(eventType, "owner.enrollment.progress")) {
+        const int saved = event["sample_count"] | 0;
+        showRealtimeVoiceEvent(FaceEmotion::Happy, "PULSE", 900UL);
+        playSound("BEEP");
+        addRealtimeLog(String("Owner voice sample saved: ") + saved + "/3");
+        return;
+    }
+    if (!strcmp(eventType, "owner.enrollment.complete")) {
+        showRealtimeVoiceEvent(FaceEmotion::Love, "PULSE", 2400UL);
+        playSound("DOUBLE");
+        addRealtimeLog("Owner voice enrolled: 3/3 samples · recognition enabled");
+        return;
+    }
+    if (!strcmp(eventType, "phone.session.disconnected")) {
+        gPhonePairingVisible = false;
+        gPhoneSessionActive = false;
+        gPhonePairingUrl = "";
+        gPhonePairingUntilMs = 0;
+        resetVoiceVad();
+        addRealtimeLog("Phone session ended · onboard microphone restored");
+        return;
+    }
     if (!strcmp(eventType, "device.event.ack")) return;
     if (!strcmp(eventType, "device.command")) {
         String payload;

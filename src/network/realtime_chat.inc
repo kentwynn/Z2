@@ -528,6 +528,18 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         gRealtimeWakeRejectionPending = true;
     } else if (!strcmp(eventType, "speech.rejected")) {
         addRealtimeLog("Ignored uncertain audio - listening again");
+    } else if (!strcmp(eventType, "speaker.verified")) {
+        const char *name = event["name"] | "Owner";
+        const float confidence = event["confidence"] | 0.0f;
+        showRealtimeVoiceEvent(FaceEmotion::Love, "PULSE", 1000UL);
+        playSound("CHIRP");
+        addRealtimeLog(String("Voice verified: ") + name + " · confidence " +
+                       String(confidence, 3));
+    } else if (!strcmp(eventType, "speaker.unknown")) {
+        const float confidence = event["confidence"] | 0.0f;
+        showRealtimeVoiceEvent(FaceEmotion::Confused, "PULSE", 900UL);
+        addRealtimeLog(String("Phone voice unknown · confidence ") +
+                       String(confidence, 3));
     } else if (!strcmp(eventType, "error")) {
         const char *message = event["message"] | "";
         if (message[0]) addRealtimeLog(String("API error: ") + message);

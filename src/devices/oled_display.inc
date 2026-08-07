@@ -330,6 +330,15 @@ void updateOled()
         }
         return;
     }
+    if (gPhonePairingVisible) {
+        if (static_cast<int32_t>(gPhonePairingUntilMs - millis()) <= 0) {
+            gPhonePairingVisible = false;
+            gPhonePairingUrl = "";
+        } else {
+        showPhonePairingQr();
+        return;
+        }
+    }
     gDisplay.clearDisplay();
     if (!gOledLiveDetail.isEmpty() &&
         static_cast<int32_t>(gOledConsoleUntilMs - millis()) > 0) {
@@ -415,4 +424,14 @@ void showWifiSetupQr()
     config.qrcode_ecc_level = ESP_QRCODE_ECC_LOW;
     if (esp_qrcode_generate(&config, payload.c_str()) != ESP_OK)
         showWifiSetupInstructions();
+}
+
+void showPhonePairingQr()
+{
+    if (!gOledReady || gPhonePairingUrl.isEmpty()) return;
+    esp_qrcode_config_t config = ESP_QRCODE_CONFIG_DEFAULT();
+    config.display_func = drawLargeWifiQr;
+    config.max_qrcode_version = 10;
+    config.qrcode_ecc_level = ESP_QRCODE_ECC_LOW;
+    esp_qrcode_generate(&config, gPhonePairingUrl.c_str());
 }
