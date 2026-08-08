@@ -1,6 +1,5 @@
 constexpr unsigned long kLocalRecoveryDurationMs = 320;
 constexpr unsigned long kLocalRecoveryPivotDurationMs = 220;
-constexpr unsigned long kLocalRecoveryMaximumMs = 900;
 // Stay below normal cruise speed (180), but above the measured low-speed
 // region where the drivetrain may not overcome static friction.
 constexpr int kLocalRecoverySpeed = 150;
@@ -10,9 +9,13 @@ constexpr int kLocalRecoveryStartSpeed = 120;
 void driveLocalRecovery(char command, int speed)
 {
     const int translationMotor = command == 'B' ? -speed : speed;
-    const int rightMotor = command == 'R' ? -speed
+    const int rightMotor = command == 'Q' ? speed
+                         : command == 'E' ? speed / 2
+                         : command == 'R' ? -speed
                          : command == 'L' ? speed : translationMotor;
-    const int leftMotor = command == 'R' ? speed
+    const int leftMotor = command == 'Q' ? speed / 2
+                        : command == 'E' ? speed
+                        : command == 'R' ? speed
                         : command == 'L' ? -speed : translationMotor;
     driveMotor(rightMotor, kAin1Pin, kAin2Pin, kRightPwmChannel);
     driveMotor(leftMotor, kBin1Pin, kBin2Pin, kLeftPwmChannel);
@@ -31,11 +34,21 @@ bool localRecoveryTriggerStillActive(char command)
         return gTofValid[2] &&
             gTofDistanceMm[2] <= kTouchReactionDistanceMm;
     if (command == 'R')
-        return gTofValid[0] &&
-            gTofDistanceMm[0] <= kTouchReactionDistanceMm;
-    if (command == 'L')
         return gTofValid[1] &&
             gTofDistanceMm[1] <= kTouchReactionDistanceMm;
+    if (command == 'L')
+        return gTofValid[0] &&
+            gTofDistanceMm[0] <= kTouchReactionDistanceMm;
+    if (command == 'Q')
+        return (gTofValid[2] &&
+                gTofDistanceMm[2] <= kTouchReactionDistanceMm) ||
+            (gTofValid[1] &&
+             gTofDistanceMm[1] <= kTouchReactionDistanceMm);
+    if (command == 'E')
+        return (gTofValid[2] &&
+                gTofDistanceMm[2] <= kTouchReactionDistanceMm) ||
+            (gTofValid[0] &&
+             gTofDistanceMm[0] <= kTouchReactionDistanceMm);
     return false;
 }
 
@@ -77,62 +90,110 @@ bool recoveryDirectionClear(char command)
     // A short in-place pivot does not translate the chassis into the blocked
     // front/rear path. It is allowed only away from a single close front zone,
     // with the destination-side sensor valid and positively clear.
+    // During a left pivot the right-front corner advances and the left-front
+    // corner retreats; during a right pivot the opposite is true. Validate
+    // the advancing corner, not the side named by the turn command.
     if (command == 'R')
         return !gCliffDetected[0] && !gCliffDetected[1] &&
-            gTofValid[1] && gTofDistanceMm[1] > kTofResetDistanceMm;
+            gTofValid[0] && gTofDistanceMm[0] > kTofResetDistanceMm;
     if (command == 'L')
         return !gCliffDetected[0] && !gCliffDetected[1] &&
+            gTofValid[1] && gTofDistanceMm[1] > kTofResetDistanceMm;
+    // Q/E are forward-left/forward-right escape arcs. Validate the target
+    // front quadrant; the occupied rear/opposite side is the source we are
+    // moving away from.
+    if (command == 'Q')
+        return !gCliffDetected[0] && !gCliffDetected[1] &&
             gTofValid[0] && gTofDistanceMm[0] > kTofResetDistanceMm;
+    if (command == 'E')
+        return !gCliffDetected[0] && !gCliffDetected[1] &&
+            gTofValid[1] && gTofDistanceMm[1] > kTofResetDistanceMm;
     return false;
 }
 
-bool tryStartLocalSafetyRecovery(char interruptedCommand, const char *hazard)
+uint16_t recoveryDirectionScore(char command)
+{
+    if (!recoveryDirectionClear(command)) return 0;
+    if (command == 'B') return gTofDistanceMm[2];
+    if (command == 'L') return gTofDistanceMm[1];
+    if (command == 'R') return gTofDistanceMm[0];
+    if (command == 'Q') return gTofDistanceMm[0];
+    if (command == 'E') return gTofDistanceMm[1];
+    if (command == 'F') {
+        const uint16_t sonarMm = static_cast<uint16_t>(constrain(
+            static_cast<int>(gLatestDistanceCm * 10.0f), 0, 4000));
+        return min(sonarMm,
+                   min(gTofDistanceMm[0], gTofDistanceMm[1]));
+    }
+    return 0;
+}
+
+bool tryStartLocalSafetyRecovery(char /*interruptedCommand*/, const char *hazard)
 {
     if (!gAutomaticSafetyRecovery || gLocalRecoveryActive ||
         gLocalRecoveryAttempted) return false;
     gLocalRecoveryAttempted = true;
 
-    const bool leftBlocked = gTofValid[0] &&
-        gTofDistanceMm[0] <= kTofStopDistanceMm;
-    const bool rightBlocked = gTofValid[1] &&
-        gTofDistanceMm[1] <= kTofStopDistanceMm;
-    const bool rearBlocked = gTofValid[2] &&
-        gTofDistanceMm[2] <= kTofStopDistanceMm;
+    char candidate = 'S';
+    uint16_t candidateScore = 0;
     const bool sonarBlocked = gUltrasonicValid &&
         gLatestDistanceCm <= kEmergencyStopDistanceCm;
-    const bool frontBlocked = sonarBlocked || leftBlocked || rightBlocked;
-    char candidate = 'S';
+    const bool leftBlocked =
+        (gTofValid[0] && gTofDistanceMm[0] <= kTofStopDistanceMm) ||
+        (!gTofValid[0] && gTofReady[0] && sonarBlocked && gTofValid[1]);
+    const bool rightBlocked =
+        (gTofValid[1] && gTofDistanceMm[1] <= kTofStopDistanceMm) ||
+        (!gTofValid[1] && gTofReady[1] && sonarBlocked && gTofValid[0]);
+    const bool rearBlocked = gTofValid[2] &&
+        gTofDistanceMm[2] <= kTofStopDistanceMm;
+    const bool anyFrontBlocked = sonarBlocked || leftBlocked || rightBlocked;
 
     if (gCliffDetected[0] || gCliffDetected[1]) {
         candidate = 'B';
-    } else if (leftBlocked && !rightBlocked) {
-        // Move the occupied front-left corner away from the obstacle. This is
-        // preferred over a generic reverse when the side geometry is known.
-        candidate = 'R';
-    } else if (rightBlocked && !leftBlocked) {
-        candidate = 'L';
-    } else if (rearBlocked && !frontBlocked) {
-        candidate = 'F';
-    } else if (frontBlocked && !rearBlocked) {
+        candidateScore = recoveryDirectionScore(candidate);
+    } else if (anyFrontBlocked && !rearBlocked) {
+        // A front-boundary event is best resolved by translating the entire
+        // chassis away. Do not let a large side range make a pivot beat a
+        // verified rear escape; one front corner advances during any pivot.
         candidate = 'B';
-    } else if (frontBlocked && rearBlocked &&
-               gTofValid[0] && gTofValid[1]) {
-        // Translation is unavailable in both directions; pivot toward the
-        // verified side with more measured clearance.
-        candidate = gTofDistanceMm[1] >= gTofDistanceMm[0] ? 'R' : 'L';
-    } else if (interruptedCommand == 'B') {
-        candidate = 'F';
+        candidateScore = recoveryDirectionScore(candidate);
+    } else if (rearBlocked && rightBlocked && !leftBlocked) {
+        candidate = 'Q';
+        candidateScore = recoveryDirectionScore(candidate);
+    } else if (rearBlocked && leftBlocked && !rightBlocked) {
+        candidate = 'E';
+        candidateScore = recoveryDirectionScore(candidate);
     } else {
-        candidate = 'B';
-    }
-
-    // Central sonar contact can leave both front ToFs clear. If reverse is
-    // unavailable, use their measured clearance to choose the safer pivot.
-    if (!recoveryDirectionClear(candidate) && sonarBlocked &&
-        gTofValid[0] && gTofValid[1]) {
-        const char roomier = gTofDistanceMm[1] >= gTofDistanceMm[0]
-            ? 'R' : 'L';
-        if (recoveryDirectionClear(roomier)) candidate = roomier;
+        // First apply kinematic eligibility: a candidate must move each known
+        // occupied boundary away, not merely point toward a large range.
+        // Then score the eligible candidates by verified clearance.
+        constexpr char candidates[] = {'F', 'B', 'L', 'R'};
+        for (char direction : candidates) {
+            bool eligible = false;
+            if (direction == 'F') {
+                eligible = rearBlocked && !anyFrontBlocked;
+            } else if (direction == 'B') {
+                eligible = anyFrontBlocked && !rearBlocked;
+            } else if (direction == 'L') {
+                // Left pivot retreats the left-front corner. With a central
+                // front obstacle, prefer straight reverse whenever available.
+                eligible = leftBlocked && !rightBlocked &&
+                    (!sonarBlocked || rearBlocked);
+                if (sonarBlocked && rearBlocked &&
+                    !leftBlocked && !rightBlocked) eligible = true;
+            } else if (direction == 'R') {
+                eligible = rightBlocked && !leftBlocked &&
+                    (!sonarBlocked || rearBlocked);
+                if (sonarBlocked && rearBlocked &&
+                    !leftBlocked && !rightBlocked) eligible = true;
+            }
+            if (!eligible) continue;
+            const uint16_t score = recoveryDirectionScore(direction);
+            if (score > candidateScore) {
+                candidate = direction;
+                candidateScore = score;
+            }
+        }
     }
     if (!recoveryDirectionClear(candidate)) {
         String detail = String(hazard) + " · no verified-safe " +
@@ -154,9 +215,10 @@ bool tryStartLocalSafetyRecovery(char interruptedCommand, const char *hazard)
     gLastDriveCommandMs = millis();
     setTrafficLight(false, true, false);
     addRealtimeLog(String("Local safety recovery: ") + candidate +
-                   " · " + hazard);
+                   " · clearance " + candidateScore + " mm · " + hazard);
     sendDeviceEvent("Safety", "Recovery started",
-                    String(hazard) + " · direction " + candidate);
+                    String(hazard) + " · direction " + candidate +
+                    " · clearance " + candidateScore + " mm");
     return true;
 }
 
@@ -176,22 +238,19 @@ void updateLocalSafetyRecovery()
     const int rampedSpeed = min(targetSpeed,
         kLocalRecoveryStartSpeed + static_cast<int>(elapsed / 8));
     driveLocalRecovery(gLocalRecoveryCommand, rampedSpeed);
+    gMoving = true;
+    gLastDriveCommandMs = millis();
     const unsigned long duration =
         (gLocalRecoveryCommand == 'L' || gLocalRecoveryCommand == 'R')
             ? kLocalRecoveryPivotDurationMs : kLocalRecoveryDurationMs;
     if (elapsed < duration) return;
-    if (localRecoveryTriggerStillActive(gLocalRecoveryCommand) &&
-        elapsed < kLocalRecoveryMaximumMs) return;
+    // Closed-loop avoidance: continue for as long as the originating
+    // proximity remains too close. Direction validity above is re-evaluated
+    // every loop, so rear/cliff/sensor changes still stop immediately.
+    if (localRecoveryTriggerStillActive(gLocalRecoveryCommand)) return;
 
-    const bool escaped =
-        !localRecoveryTriggerStillActive(gLocalRecoveryCommand);
     stopMotors();
     gLocalRecoveryActive = false;
-    if (!escaped) {
-        notifyRecoveryBlocked("avoidance limit reached · hazard still active");
-        return;
-    }
-
     gSafetyStopActive = false;
     gLocalRecoveryAttempted = false;
     gLastRecoveryBlockedNoticeMs = 0;

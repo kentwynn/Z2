@@ -177,34 +177,52 @@ void updateCliffSensors()
     }
 
     if (gCliffRecoveryActive) {
-        const bool rearBlocked = gTofValid[2] &&
+        const bool rearBlocked = !gTofValid[2] ||
             gTofDistanceMm[2] <= kTofStopDistanceMm;
-        if (rearBlocked || now - gCliffRecoveryStartedMs >= kCliffRecoveryMs) {
+        const bool timedOut =
+            now - gCliffRecoveryStartedMs >= kCliffRecoveryMaximumMs;
+        if (!anyCliff || rearBlocked || timedOut) {
             stopMotors();
             gCliffRecoveryActive = false;
-            gSafetyStopActive = rearBlocked;
-            if (!gCliffHazardActive && !rearBlocked) {
+            const bool recovered = !anyCliff;
+            gSafetyStopActive = !recovered;
+            if (recovered) {
                 auto &safetyPresentation =
                     gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
                 if (safetyPresentation.active && safetyPresentation.event == "cliff")
                     clearPresentation(PresentationOwner::Safety);
+                addRealtimeLog("Cliff recovery completed · supported floor restored");
+                sendDeviceEvent("Safety", "Recovery completed",
+                                "cliff sensors returned to supported floor");
+            } else if (rearBlocked) {
+                notifyRecoveryBlocked(
+                    "cliff active · rear became unavailable or blocked");
+            } else {
+                notifyRecoveryBlocked(
+                    "cliff did not clear within bounded recovery");
             }
-            Serial.printf("[Z2 CLIFF] recovery complete rear=%s\n",
-                          rearBlocked ? "BLOCKED" : "clear");
+            Serial.printf("[Z2 CLIFF] recovery stopped clear=%d rear=%s timeout=%d\n",
+                          recovered, rearBlocked ? "BLOCKED" : "clear", timedOut);
+        } else {
+            // Keep the motor watchdog alive only while every feedback check
+            // still permits the same recovery direction.
+            gLastDriveCommandMs = now;
         }
         return;
     }
 
-    if (!gCliffArmed || !anyCliff || !gMoving || gCommand == 'B') return;
+    // A robot placed down at an edge must recover even when it was stationary;
+    // cliff protection is local and cannot depend on a prior drive command.
+    if (!gCliffArmed || !anyCliff || gCommand == 'B') return;
 
     stopMotors();
     gCliffArmed = false;
-    const bool rearBlocked = gTofValid[2] &&
-        gTofDistanceMm[2] <= kTofStopDistanceMm;
-    if (rearBlocked) {
+    const bool rearClear = gTofValid[2] &&
+        gTofDistanceMm[2] > kTofResetDistanceMm;
+    if (!rearClear) {
         gSafetyStopActive = true;
-        Serial.println("[Z2 CLIFF] edge detected; rear blocked, staying stopped");
-        notifyRecoveryBlocked("cliff active · rear blocked");
+        Serial.println("[Z2 CLIFF] edge detected; rear unavailable or blocked, staying stopped");
+        notifyRecoveryBlocked("cliff active · rear path not verified clear");
         return;
     }
     if (!gAutomaticSafetyRecovery) {
@@ -224,6 +242,12 @@ void updateCliffSensors()
     gMoving = true;
     gLastDriveCommandMs = now;
     setTrafficLight(false, true, false);
+    addRealtimeLog(String("Cliff recovery: B · left=") +
+                   gCliffDetected[0] + " right=" + gCliffDetected[1] +
+                   " rear=" + gTofDistanceMm[2] + " mm");
+    sendDeviceEvent("Safety", "Recovery started",
+                    String("cliff · direction B · rear ") +
+                    gTofDistanceMm[2] + " mm");
     Serial.printf("[Z2 CLIFF] edge left=%d right=%d; reversing\n",
                   gCliffDetected[0], gCliffDetected[1]);
 }
