@@ -230,6 +230,9 @@ void updateControlChannel()
             telemetry["virtual_power"] = gVirtualPowerOn;
             telemetry["safety_stop"] = gSafetyStopActive;
             telemetry["cliff_recovery"] = gCliffRecoveryActive;
+            telemetry["automatic_safety_recovery"] = gAutomaticSafetyRecovery;
+            telemetry["local_recovery_active"] = gLocalRecoveryActive;
+            telemetry["local_recovery_attempted"] = gLocalRecoveryAttempted;
             JsonObject capabilities = telemetry["capabilities"].to<JsonObject>();
             capabilities["movement"] = gCapabilityMovement && gToolboxControlEnabled;
             capabilities["autonomous_drive"] = gCapabilityAutonomousDrive;

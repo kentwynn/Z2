@@ -17,6 +17,15 @@ bool touchReactionActive()
         millis() - gLastTouchReactionMs <= kTouchReactionHoldMs;
 }
 
+bool immediateObstacleHazardActive()
+{
+    return (gUltrasonicValid &&
+            gLatestDistanceCm <= kEmergencyStopDistanceCm) ||
+        (gTofValid[0] && gTofDistanceMm[0] <= kTofStopDistanceMm) ||
+        (gTofValid[1] && gTofDistanceMm[1] <= kTofStopDistanceMm) ||
+        (gTofValid[2] && gTofDistanceMm[2] <= kTofStopDistanceMm);
+}
+
 void updateTouchReaction()
 {
     // Cliff danger is exclusive. Do not queue a lower-priority contact
@@ -31,12 +40,13 @@ void updateTouchReaction()
         return;
     }
     if (gMoving) return;
-    bool veryClose = gUltrasonicValid &&
-        gLatestDistanceCm <= kTouchReactionDistanceCm;
-    for (uint8_t index = 0; index < kTofCount && !veryClose; ++index) {
-        veryClose = gTofValid[index] &&
-            gTofDistanceMm[index] <= kTouchReactionDistanceMm;
-    }
+    const bool frontClose =
+        (gUltrasonicValid && gLatestDistanceCm <= kTouchReactionDistanceCm) ||
+        (gTofValid[0] && gTofDistanceMm[0] <= kTouchReactionDistanceMm) ||
+        (gTofValid[1] && gTofDistanceMm[1] <= kTouchReactionDistanceMm);
+    const bool rearClose = gTofValid[2] &&
+        gTofDistanceMm[2] <= kTouchReactionDistanceMm;
+    const bool veryClose = frontClose || rearClose;
     if (veryClose) {
         const unsigned long now = millis();
         const bool firstContact = !gTouchContactActive;
@@ -48,13 +58,59 @@ void updateTouchReaction()
             (!interactionPresentation.active || interactionPresentation.event == "near_presence"))
             requestPresentation(PresentationOwner::Interaction,
                                 gPresetInteractionTouch, "near_presence");
+        if (firstContact && gAutomaticSafetyRecovery) {
+            gSafetyStopActive = true;
+            requestPresentation(PresentationOwner::Safety,
+                                gPresetSafetyObstacle, "obstacle", false);
+            // An interrupted forward command chooses reverse; an interrupted
+            // reverse command chooses forward. When both sides are close,
+            // prefer neither blindly: the candidate validation will reject it.
+            const char approachedFrom = rearClose && !frontClose ? 'B' : 'F';
+            tryStartLocalSafetyRecovery(approachedFrom,
+                                        frontClose && rearClose
+                                            ? "front and rear proximity"
+                                            : frontClose ? "front proximity"
+                                                         : "rear proximity");
+        }
     } else if (gTouchContactActive &&
-               millis() - gLastTouchReactionMs > kTouchReactionHoldMs) {
+               ((!gLocalRecoveryActive && gLocalRecoveryAttempted) ||
+                millis() - gLastTouchReactionMs > kTouchReactionHoldMs)) {
         gTouchContactActive = false;
         auto &interactionPresentation =
             gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
         if (interactionPresentation.active && interactionPresentation.event == "near_presence")
             clearPresentation(PresentationOwner::Interaction);
+        // A new deliberate proximity incident must be evaluated again even
+        // when an unrelated direction remains blocked. The candidate planner
+        // will still refuse every uncertified escape path.
+        if (!gLocalRecoveryActive) {
+            gLocalRecoveryAttempted = false;
+            gLastRecoveryBlockedNoticeMs = 0;
+        }
+        const bool immediateHazard = immediateObstacleHazardActive();
+        if (!gCliffHazardActive && !immediateHazard) {
+            gSafetyStopActive = false;
+            auto &safetyPresentation =
+                gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
+            if (safetyPresentation.active && safetyPresentation.event == "obstacle")
+                clearPresentation(PresentationOwner::Safety);
+        }
+    }
+
+    // Reconcile a previously blocked recovery continuously. The contact edge
+    // may already have been consumed while another sensor was still inside
+    // its hard boundary; once that boundary clears, do not leave yellow and
+    // the motor lock latched indefinitely.
+    if (gSafetyStopActive && !gCliffHazardActive &&
+        !gCliffRecoveryActive && !gLocalRecoveryActive &&
+        !veryClose && !immediateObstacleHazardActive()) {
+        gSafetyStopActive = false;
+        gLocalRecoveryAttempted = false;
+        gLastRecoveryBlockedNoticeMs = 0;
+        auto &safetyPresentation =
+            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
+        if (safetyPresentation.active && safetyPresentation.event == "obstacle")
+            clearPresentation(PresentationOwner::Safety);
     }
 }
 
@@ -96,7 +152,8 @@ void updateCliffSensors()
                           gCliffDetected[0], gCliffDetected[1]);
         } else if (now - gLastCliffWarningMs >= kCliffWarningRepeatMs) {
             gLastCliffWarningMs = now;
-            if (gCapabilitySpeaker && gPresetSafetyCliff.sound != "OFF")
+            if (!gCliffRecoveryActive && gCapabilitySpeaker &&
+                gPresetSafetyCliff.sound != "OFF")
                 playSound(gPresetSafetyCliff.sound);
         }
     } else if (gCliffHazardActive) {
@@ -147,6 +204,14 @@ void updateCliffSensors()
     if (rearBlocked) {
         gSafetyStopActive = true;
         Serial.println("[Z2 CLIFF] edge detected; rear blocked, staying stopped");
+        notifyRecoveryBlocked("cliff active · rear blocked");
+        return;
+    }
+    if (!gAutomaticSafetyRecovery) {
+        gSafetyStopActive = true;
+        addRealtimeLog("Cliff stopped locally · automatic recovery disabled");
+        sendDeviceEvent("Safety", "Recovery not attempted",
+                        "cliff stop · automatic recovery disabled");
         return;
     }
 

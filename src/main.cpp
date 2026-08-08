@@ -18,6 +18,7 @@
 #include "devices/oled_display.inc"
 #include "devices/audio.inc"
 #include "domain/presentation_manager.inc"
+#include "safety/local_recovery.inc"
 #include "network/realtime_chat.inc"
 #include "network/control_channel.inc"
 #include "network/robot_onboarding.inc"

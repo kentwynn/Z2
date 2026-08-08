@@ -115,6 +115,8 @@ bool syncManagedRobotConfig()
         gAutoFrontClearMm = constrain(device["auto_front_clear_mm"] | 300, 200, 800);
         gAutoRearClearMm = constrain(device["auto_rear_clear_mm"] | 250, 150, 800);
         gAutoCruiseSpeed = constrain(device["auto_cruise_speed"] | 180, 100, 230);
+        gAutomaticSafetyRecovery =
+            device["automatic_safety_recovery"] | false;
         gControlVoiceSuspendSeconds = constrain(
             device["control_voice_suspend_seconds"] | 20, 5, 120);
         gReverseSound = String(device["reverse_sound"] | "DOUBLE");

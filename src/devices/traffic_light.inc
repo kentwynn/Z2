@@ -9,6 +9,10 @@ void updateTrafficLight()
     }
     if (gCliffHazardActive || gCliffRecoveryActive) {
         setTrafficLight(false, (now / 140) % 2, false);
+    } else if (gLocalRecoveryActive) {
+        // Steady yellow means Z2 is actively resolving the hazard. Blinking
+        // yellow below means it is stopped and still needs attention.
+        setTrafficLight(false, true, false);
     } else if (gSafetyStopActive) {
         setTrafficLight(false, (now / 180) % 2, false);
     } else if (touchReactionActive()) {

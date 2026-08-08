@@ -5,8 +5,8 @@ bool applyDrive(char command, int speed)
         Serial.printf("[Z2 POWER] command=%c blocked while virtual power is off\n", command);
         return false;
     }
-    if (gCliffRecoveryActive) {
-        Serial.printf("[Z2 CLIFF] command=%c ignored during recovery\n", command);
+    if (gCliffRecoveryActive || gLocalRecoveryActive) {
+        Serial.printf("[Z2 SAFETY] command=%c ignored during recovery\n", command);
         return false;
     }
     const bool cliffBlocked = (gCliffDetected[0] || gCliffDetected[1]) &&
@@ -127,6 +127,8 @@ void setVirtualPowerState(bool turnOn, const char *reason)
 
     disableAutoDrive(reason);
     gCliffRecoveryActive = false;
+    gLocalRecoveryActive = false;
+    gLocalRecoveryAttempted = false;
     gEmergencyStopRequested = false;
     gVirtualPowerOn = false;
     gRingMode = RingMode::Off;

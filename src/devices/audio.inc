@@ -308,7 +308,10 @@ void playSound(const String &requestedName)
 {
     String name = requestedName;
     name.toUpperCase();
-    stopMotors();
+    // Presentation audio must not own locomotion. Safety recovery and control
+    // cues are allowed to play while the motor state machine remains active;
+    // callers that explicitly need a stop already do so before requesting
+    // audio (for example the local /sound endpoint).
 
     if (name == "HELLO") {
         playHelloVoice();

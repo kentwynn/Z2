@@ -293,6 +293,13 @@ void setup()
                      ",\"cliffLeftRaw\":" + (gCliffRawHigh[0] ? "1" : "0") +
                      ",\"cliffRightRaw\":" + (gCliffRawHigh[1] ? "1" : "0") +
                      ",\"cliffRecovery\":" + (gCliffRecoveryActive ? "true" : "false") +
+                     ",\"automaticSafetyRecovery\":" +
+                     (gAutomaticSafetyRecovery ? "true" : "false") +
+                     ",\"localRecoveryActive\":" +
+                     (gLocalRecoveryActive ? "true" : "false") +
+                     ",\"localRecoveryAttempted\":" +
+                     (gLocalRecoveryAttempted ? "true" : "false") +
+                     ",\"localRecoveryCommand\":\"" + String(gLocalRecoveryCommand) + "\"" +
                      ",\"autoDrive\":" + (gAutoDriveEnabled ? "true" : "false") +
                      ",\"autoState\":\"" + autoDriveStateName() + "\"" +
                      ",\"ringMode\":\"" + ringModeName() + "\"" +
@@ -440,10 +447,12 @@ void loop()
         updateTofSensors();
         updateCliffSensors();
         updateTouchReaction();
+        updateLocalSafetyRecovery();
         if (touchReactionActive()) cancelRealtimeRecordingForProximity();
         if (gEmergencyStopRequested) {
             gEmergencyStopRequested = false;
             const float stoppedAtCm = gDistanceCm;
+            const char interruptedCommand = gCommand;
             stopMotors();
             gSafetyStopActive = true;
             requestPresentation(PresentationOwner::Safety,
@@ -451,10 +460,15 @@ void loop()
             Serial.printf("[Z2 SAFETY] emergency stop at %.1f cm\n", stoppedAtCm);
             if (!gAutoDriveEnabled) playCollisionWarning();
             else gCollisionWarningLatched = true;
+            if (!gCliffRecoveryActive && !gLocalRecoveryActive)
+                tryStartLocalSafetyRecovery(interruptedCommand,
+                                            "distance boundary");
         }
         if (gCollisionWarningLatched && allSafetyZonesClear()) {
             gCollisionWarningLatched = false;
             gSafetyStopActive = false;
+            gLocalRecoveryAttempted = false;
+            gLastRecoveryBlockedNoticeMs = 0;
         }
         updateAutoDrive();
         if (!gWifiSetupMode) updateRingAnimation();
