@@ -103,7 +103,10 @@ constexpr uint8_t kCliffDetectedLevel = HIGH;
 constexpr unsigned long kCliffReadIntervalMs = 10;
 constexpr uint8_t kCliffDebounceSamples = 3;
 constexpr unsigned long kCliffRecoveryMaximumMs = 1500;
-constexpr int kCliffRecoverySpeed = 115;
+// The measured drivetrain may not overcome static friction near PWM 115.
+// Cliff recovery must produce real reverse movement immediately, so use the
+// same proven speed as local proximity recovery.
+constexpr int kCliffRecoverySpeed = 150;
 constexpr int kAutoCruiseSpeed = 225;
 constexpr int kAutoTurnSpeed = 200;
 constexpr int kAutoReverseSpeed = 180;

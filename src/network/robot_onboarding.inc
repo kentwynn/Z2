@@ -369,12 +369,19 @@ void pollRobotCommands()
         return;
     }
     if (command == "stop") {
-        gAiMotionStopAtMs = 0;
-        if (!aiToolboxCommand) activateControlLease(true);
-        disableAutoDrive("cloud emergency stop");
-        gCliffRecoveryActive = false;
-        clearPresentation(PresentationOwner::Control);
-        executed = true;
+        if (gCliffRecoveryActive || gLocalRecoveryActive) {
+            // Releasing a held dashboard drive control sends STOP. That input
+            // must not cancel the local reverse that is actively moving the
+            // chassis off a cliff or away from a boundary. Local safety owns
+            // the motors until it reaches a terminal safe/blocked state.
+            detail += " rejected: local safety recovery has final authority";
+        } else {
+            gAiMotionStopAtMs = 0;
+            if (!aiToolboxCommand) activateControlLease(true);
+            disableAutoDrive("cloud emergency stop");
+            clearPresentation(PresentationOwner::Control);
+            executed = true;
+        }
     } else if (command == "drive" && gToolboxControlEnabled && gCapabilityMovement && value.length() == 1) {
         if (!aiToolboxCommand) activateControlLease(false);
         disableAutoDrive("cloud manual drive");

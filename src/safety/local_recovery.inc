@@ -9,7 +9,10 @@ constexpr unsigned long kLocalRecoveryMaximumMs = 900;
 // region where the drivetrain may not overcome static friction.
 constexpr int kLocalRecoverySpeed = 150;
 constexpr int kLocalRecoveryPivotSpeed = 145;
-constexpr int kLocalRecoveryStartSpeed = 120;
+// Start translation at the proven recovery speed. PWM 120 can remain below
+// static friction under the robot's weight, making logs report recovery while
+// the chassis does not physically move.
+constexpr int kLocalRecoveryStartSpeed = 150;
 
 void driveLocalRecovery(char command, int speed)
 {
