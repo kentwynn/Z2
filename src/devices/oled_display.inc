@@ -316,6 +316,31 @@ void drawToolboxActivity()
     gDisplay.print(oledCompactLine(gOledLiveDetail, 20));
 }
 
+void drawAiOledCanvas()
+{
+    gDisplay.setTextColor(SSD1306_WHITE);
+    for (uint8_t index = 0; index < gOledPrimitiveCount; ++index) {
+        const OledPrimitive &item = gOledPrimitives[index];
+        if (item.kind == OledPrimitiveKind::Text) {
+            gDisplay.setTextSize(item.size);
+            gDisplay.setCursor(item.x, item.y);
+            gDisplay.print(item.text);
+        } else if (item.kind == OledPrimitiveKind::Line) {
+            gDisplay.drawLine(item.x, item.y, item.x2, item.y2, SSD1306_WHITE);
+        } else if (item.kind == OledPrimitiveKind::Rect) {
+            if (item.fill)
+                gDisplay.fillRect(item.x, item.y, item.width, item.height, SSD1306_WHITE);
+            else
+                gDisplay.drawRect(item.x, item.y, item.width, item.height, SSD1306_WHITE);
+        } else if (item.kind == OledPrimitiveKind::Circle) {
+            if (item.fill)
+                gDisplay.fillCircle(item.x, item.y, item.radius, SSD1306_WHITE);
+            else
+                gDisplay.drawCircle(item.x, item.y, item.radius, SSD1306_WHITE);
+        }
+    }
+}
+
 void updateOled()
 {
     if (!gOledReady || millis() - gLastOledUpdateMs < 100) return;
@@ -340,6 +365,19 @@ void updateOled()
         }
     }
     gDisplay.clearDisplay();
+    const bool safetyPresentationActive =
+        gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)].active;
+    if (!safetyPresentationActive && gOledPrimitiveCount > 0 &&
+        static_cast<int32_t>(gOledCanvasUntilMs - millis()) > 0) {
+        drawAiOledCanvas();
+        gDisplay.display();
+        return;
+    }
+    if (gOledPrimitiveCount > 0 &&
+        static_cast<int32_t>(gOledCanvasUntilMs - millis()) <= 0) {
+        gOledPrimitiveCount = 0;
+        gOledCanvasUntilMs = 0;
+    }
     if (!gOledLiveDetail.isEmpty() &&
         static_cast<int32_t>(gOledConsoleUntilMs - millis()) > 0) {
         drawToolboxActivity();
@@ -354,8 +392,6 @@ void updateOled()
     // overwriting it here used to erase touch/movement faces every 100 ms.
     const bool voiceEventActive =
         static_cast<int32_t>(gVoiceEventUntilMs - millis()) > 0;
-    const bool safetyPresentationActive =
-        gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)].active;
     if (safetyPresentationActive) {
         // Safety owns the face absolutely, including during phone chat and
         // streamed AI speech. applyPresentation already selected its face and

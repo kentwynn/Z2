@@ -137,6 +137,18 @@ enum class AmbientCondition : uint8_t {
     Unavailable, VeryDark, Dark, Dim, Comfortable, Bright, VeryBright
 };
 enum class DisplayMode : uint8_t { Off, Face, Info, Sensors };
+enum class OledPrimitiveKind : uint8_t { Text, Line, Rect, Circle };
+struct OledPrimitive {
+    OledPrimitiveKind kind = OledPrimitiveKind::Text;
+    int16_t x = 0, y = 0, x2 = 0, y2 = 0;
+    uint8_t width = 1, height = 1, radius = 1, size = 1;
+    bool fill = false;
+    String text;
+};
+constexpr uint8_t kOledPrimitiveCapacity = 12;
+OledPrimitive gOledPrimitives[kOledPrimitiveCapacity];
+uint8_t gOledPrimitiveCount = 0;
+unsigned long gOledCanvasUntilMs = 0;
 enum class FaceEmotion : uint8_t {
     Neutral, Happy, Curious, Sleepy, Surprised, Excited,
     Sad, Love, Confused, Thinking, Angry, Alert, Focused,

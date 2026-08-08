@@ -417,6 +417,51 @@ void pollRobotCommands()
             gFaceEmotion = presentationEmotion(value); }
         gLastOledUpdateMs = 0;
         executed = true;
+    } else if (command == "oled_draw" && gCapabilityDisplay) {
+        gOledPrimitiveCount = 0;
+        JsonArray elements = item["elements"].as<JsonArray>();
+        for (JsonObject source : elements) {
+            if (gOledPrimitiveCount >= kOledPrimitiveCapacity) break;
+            String kind = source["kind"] | "";
+            kind.toLowerCase();
+            OledPrimitive primitive;
+            primitive.x = constrain(source["x"] | 0, 0, 127);
+            primitive.y = constrain(source["y"] | 0, 0, 63);
+            if (kind == "text") {
+                primitive.kind = OledPrimitiveKind::Text;
+                primitive.text = String(source["text"] | "");
+                primitive.text.replace("\n", " ");
+                primitive.text.replace("\r", " ");
+                if (primitive.text.length() > 32)
+                    primitive.text = primitive.text.substring(0, 32);
+                primitive.size = constrain(source["size"] | 1, 1, 6);
+                if (primitive.text.isEmpty()) continue;
+            } else if (kind == "line") {
+                primitive.kind = OledPrimitiveKind::Line;
+                primitive.x2 = constrain(source["x2"] | 0, 0, 127);
+                primitive.y2 = constrain(source["y2"] | 0, 0, 63);
+            } else if (kind == "rect") {
+                primitive.kind = OledPrimitiveKind::Rect;
+                primitive.width = constrain(source["width"] | 1, 1, 128 - primitive.x);
+                primitive.height = constrain(source["height"] | 1, 1, 64 - primitive.y);
+                primitive.fill = source["fill"] | false;
+            } else if (kind == "circle") {
+                primitive.kind = OledPrimitiveKind::Circle;
+                primitive.radius = constrain(source["radius"] | 1, 1, 63);
+                primitive.fill = source["fill"] | false;
+            } else {
+                continue;
+            }
+            gOledPrimitives[gOledPrimitiveCount++] = primitive;
+        }
+        if (gOledPrimitiveCount > 0) {
+            gOledCanvasUntilMs = millis() + durationMs;
+            gLastOledUpdateMs = 0;
+            detail += String(" elements=") + gOledPrimitiveCount;
+            executed = true;
+        } else {
+            detail += " rejected: no valid OLED primitives";
+        }
     } else if (command == "sound" && gCapabilitySpeaker && gVirtualPowerOn && gSpeakerReady) {
         playSound(value);
         executed = true;
