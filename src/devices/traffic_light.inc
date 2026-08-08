@@ -7,16 +7,16 @@ void updateTrafficLight()
                         startupAge >= 1200);
         return;
     }
-    if (gCliffHazardActive || gCliffRecoveryActive) {
-        setTrafficLight(false, (now / 140) % 2, false);
-    } else if (gLocalRecoveryActive) {
-        // Steady yellow means Z2 is actively resolving the hazard. Blinking
-        // yellow below means it is stopped and still needs attention.
+    if (gCliffRecoveryActive || gLocalRecoveryActive) {
+        // Yellow is exclusively an active-recovery state: the motors are
+        // currently trying to move Z2 away from a detected boundary.
         setTrafficLight(false, true, false);
-    } else if (gSafetyStopActive) {
-        setTrafficLight(false, (now / 180) % 2, false);
+    } else if (gCliffHazardActive || gSafetyStopActive) {
+        // If recovery has stopped while a hazard remains, show an unambiguous
+        // red stop. Never leave yellow active when the motors are stopped.
+        setTrafficLight(true, false, false);
     } else if (touchReactionActive()) {
-        setTrafficLight(false, (now / 180) % 2, false);
+        setTrafficLight(true, false, false);
     } else if (gTrafficLightOverride != "AUTO" &&
                static_cast<long>(gTrafficLightOverrideUntilMs - now) > 0) {
         setTrafficLight(gTrafficLightOverride == "RED",

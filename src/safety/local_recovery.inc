@@ -1,5 +1,10 @@
 constexpr unsigned long kLocalRecoveryDurationMs = 320;
 constexpr unsigned long kLocalRecoveryPivotDurationMs = 220;
+// A person or moving object can follow the robot and keep a proximity reading
+// inside the reset boundary forever. Recovery is therefore closed-loop but
+// bounded: stop earlier when clear, or stop after this short escape budget and
+// remain visibly blocked until the hazard is removed.
+constexpr unsigned long kLocalRecoveryMaximumMs = 900;
 // Stay below normal cruise speed (180), but above the measured low-speed
 // region where the drivetrain may not overcome static friction.
 constexpr int kLocalRecoverySpeed = 150;
@@ -25,30 +30,30 @@ bool localRecoveryTriggerStillActive(char command)
 {
     if (command == 'B')
         return (gUltrasonicValid &&
-                gLatestDistanceCm <= kTouchReactionDistanceCm) ||
+                gLatestDistanceCm <= kEmergencyResetDistanceCm) ||
             (gTofValid[0] &&
-             gTofDistanceMm[0] <= kTouchReactionDistanceMm) ||
+             gTofDistanceMm[0] <= kTofResetDistanceMm) ||
             (gTofValid[1] &&
-             gTofDistanceMm[1] <= kTouchReactionDistanceMm);
+             gTofDistanceMm[1] <= kTofResetDistanceMm);
     if (command == 'F')
         return gTofValid[2] &&
-            gTofDistanceMm[2] <= kTouchReactionDistanceMm;
+            gTofDistanceMm[2] <= kTofResetDistanceMm;
     if (command == 'R')
         return gTofValid[1] &&
-            gTofDistanceMm[1] <= kTouchReactionDistanceMm;
+            gTofDistanceMm[1] <= kTofResetDistanceMm;
     if (command == 'L')
         return gTofValid[0] &&
-            gTofDistanceMm[0] <= kTouchReactionDistanceMm;
+            gTofDistanceMm[0] <= kTofResetDistanceMm;
     if (command == 'Q')
         return (gTofValid[2] &&
-                gTofDistanceMm[2] <= kTouchReactionDistanceMm) ||
+                gTofDistanceMm[2] <= kTofResetDistanceMm) ||
             (gTofValid[1] &&
-             gTofDistanceMm[1] <= kTouchReactionDistanceMm);
+             gTofDistanceMm[1] <= kTofResetDistanceMm);
     if (command == 'E')
         return (gTofValid[2] &&
-                gTofDistanceMm[2] <= kTouchReactionDistanceMm) ||
+                gTofDistanceMm[2] <= kTofResetDistanceMm) ||
             (gTofValid[0] &&
-             gTofDistanceMm[0] <= kTouchReactionDistanceMm);
+             gTofDistanceMm[0] <= kTofResetDistanceMm);
     return false;
 }
 
@@ -72,58 +77,75 @@ bool recoveryDirectionClear(char command)
     // A cliff dominates every other hazard. The only bounded recovery that
     // follows the robot's known travelled floor is backward from a front edge.
     if (gCliffDetected[0] || gCliffDetected[1]) {
-        return command == 'B' && gTofValid[2] &&
-            gTofDistanceMm[2] > kTofResetDistanceMm;
+        return command == 'B' &&
+            (!gTofValid[2] || gTofDistanceMm[2] > kTofResetDistanceMm);
     }
     // For an ordinary front-proximity escape, use every millimetre that the
     // valid rear sensor can safely supervise. The loop rechecks at the ToF
     // cadence and stops at the hard boundary; the wider reset margin is for
     // hysteresis, not a reason to refuse all backward motion.
     if (command == 'B')
-        return gTofValid[2] &&
+        return !gTofValid[2] ||
             gTofDistanceMm[2] > kTofStopDistanceMm;
-    if (command == 'F')
-        return gUltrasonicValid &&
-            gLatestDistanceCm > kEmergencyResetDistanceCm &&
-            gTofValid[0] && gTofDistanceMm[0] > kTofResetDistanceMm &&
-            gTofValid[1] && gTofDistanceMm[1] > kTofResetDistanceMm;
+    if (command == 'F') {
+        // Rear-proximity recovery must not be trapped merely because a
+        // forward sensor has no echo or is temporarily out of range. Every
+        // available reading remains authoritative: a known close boundary
+        // blocks forward motion, while an unavailable reading contributes no
+        // restriction. The normal moving safety loop keeps sampling and stops
+        // immediately if any sensor subsequently reports the hard boundary.
+        const bool sonarClear = !gUltrasonicValid ||
+            gLatestDistanceCm > kEmergencyResetDistanceCm;
+        const bool leftClear = !gTofValid[0] ||
+            gTofDistanceMm[0] > kTofResetDistanceMm;
+        const bool rightClear = !gTofValid[1] ||
+            gTofDistanceMm[1] > kTofResetDistanceMm;
+        return sonarClear && leftClear && rightClear;
+    }
     // A short in-place pivot does not translate the chassis into the blocked
     // front/rear path. It is allowed only away from a single close front zone,
-    // with the destination-side sensor valid and positively clear.
+    // unless an available destination-side sensor reports a close boundary.
     // During a left pivot the right-front corner advances and the left-front
     // corner retreats; during a right pivot the opposite is true. Validate
     // the advancing corner, not the side named by the turn command.
     if (command == 'R')
         return !gCliffDetected[0] && !gCliffDetected[1] &&
-            gTofValid[0] && gTofDistanceMm[0] > kTofResetDistanceMm;
+            (!gTofValid[0] || gTofDistanceMm[0] > kTofResetDistanceMm);
     if (command == 'L')
         return !gCliffDetected[0] && !gCliffDetected[1] &&
-            gTofValid[1] && gTofDistanceMm[1] > kTofResetDistanceMm;
+            (!gTofValid[1] || gTofDistanceMm[1] > kTofResetDistanceMm);
     // Q/E are forward-left/forward-right escape arcs. Validate the target
     // front quadrant; the occupied rear/opposite side is the source we are
     // moving away from.
     if (command == 'Q')
         return !gCliffDetected[0] && !gCliffDetected[1] &&
-            gTofValid[0] && gTofDistanceMm[0] > kTofResetDistanceMm;
+            (!gTofValid[0] || gTofDistanceMm[0] > kTofResetDistanceMm);
     if (command == 'E')
         return !gCliffDetected[0] && !gCliffDetected[1] &&
-            gTofValid[1] && gTofDistanceMm[1] > kTofResetDistanceMm;
+            (!gTofValid[1] || gTofDistanceMm[1] > kTofResetDistanceMm);
     return false;
 }
 
 uint16_t recoveryDirectionScore(char command)
 {
     if (!recoveryDirectionClear(command)) return 0;
-    if (command == 'B') return gTofDistanceMm[2];
-    if (command == 'L') return gTofDistanceMm[1];
-    if (command == 'R') return gTofDistanceMm[0];
-    if (command == 'Q') return gTofDistanceMm[0];
-    if (command == 'E') return gTofDistanceMm[1];
+    // Unknown/out-of-range is eligible by policy and receives a neutral open
+    // score. A real available measurement still provides the exact score and
+    // always wins or blocks according to its distance.
+    if (command == 'B') return gTofValid[2] ? gTofDistanceMm[2] : 2000;
+    if (command == 'L') return gTofValid[1] ? gTofDistanceMm[1] : 2000;
+    if (command == 'R') return gTofValid[0] ? gTofDistanceMm[0] : 2000;
+    if (command == 'Q') return gTofValid[0] ? gTofDistanceMm[0] : 2000;
+    if (command == 'E') return gTofValid[1] ? gTofDistanceMm[1] : 2000;
     if (command == 'F') {
-        const uint16_t sonarMm = static_cast<uint16_t>(constrain(
-            static_cast<int>(gLatestDistanceCm * 10.0f), 0, 4000));
+        const uint16_t sonarMm = gUltrasonicValid
+            ? static_cast<uint16_t>(constrain(
+                static_cast<int>(gLatestDistanceCm * 10.0f), 0, 4000))
+            : 2000;
+        const uint16_t leftMm = gTofValid[0] ? gTofDistanceMm[0] : 2000;
+        const uint16_t rightMm = gTofValid[1] ? gTofDistanceMm[1] : 2000;
         return min(sonarMm,
-                   min(gTofDistanceMm[0], gTofDistanceMm[1]));
+                   min(leftMm, rightMm));
     }
     return 0;
 }
@@ -244,10 +266,16 @@ void updateLocalSafetyRecovery()
         (gLocalRecoveryCommand == 'L' || gLocalRecoveryCommand == 'R')
             ? kLocalRecoveryPivotDurationMs : kLocalRecoveryDurationMs;
     if (elapsed < duration) return;
-    // Closed-loop avoidance: continue for as long as the originating
-    // proximity remains too close. Direction validity above is re-evaluated
-    // every loop, so rear/cliff/sensor changes still stop immediately.
-    if (localRecoveryTriggerStillActive(gLocalRecoveryCommand)) return;
+    // Closed-loop avoidance continues only within a bounded escape budget.
+    // Direction validity above is re-evaluated every loop, so a new boundary
+    // or cliff still stops immediately.
+    if (localRecoveryTriggerStillActive(gLocalRecoveryCommand)) {
+        if (elapsed < kLocalRecoveryMaximumMs) return;
+        stopMotors();
+        gLocalRecoveryActive = false;
+        notifyRecoveryBlocked("bounded escape complete · hazard still present");
+        return;
+    }
 
     stopMotors();
     gLocalRecoveryActive = false;

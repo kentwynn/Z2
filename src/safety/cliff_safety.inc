@@ -177,7 +177,7 @@ void updateCliffSensors()
     }
 
     if (gCliffRecoveryActive) {
-        const bool rearBlocked = !gTofValid[2] ||
+        const bool rearBlocked = gTofValid[2] &&
             gTofDistanceMm[2] <= kTofStopDistanceMm;
         const bool timedOut =
             now - gCliffRecoveryStartedMs >= kCliffRecoveryMaximumMs;
@@ -196,7 +196,7 @@ void updateCliffSensors()
                                 "cliff sensors returned to supported floor");
             } else if (rearBlocked) {
                 notifyRecoveryBlocked(
-                    "cliff active · rear became unavailable or blocked");
+                    "cliff active · rear became blocked");
             } else {
                 notifyRecoveryBlocked(
                     "cliff did not clear within bounded recovery");
@@ -217,12 +217,12 @@ void updateCliffSensors()
 
     stopMotors();
     gCliffArmed = false;
-    const bool rearClear = gTofValid[2] &&
+    const bool rearClear = !gTofValid[2] ||
         gTofDistanceMm[2] > kTofResetDistanceMm;
     if (!rearClear) {
         gSafetyStopActive = true;
-        Serial.println("[Z2 CLIFF] edge detected; rear unavailable or blocked, staying stopped");
-        notifyRecoveryBlocked("cliff active · rear path not verified clear");
+        Serial.println("[Z2 CLIFF] edge detected; rear blocked, staying stopped");
+        notifyRecoveryBlocked("cliff active · rear path blocked");
         return;
     }
     if (!gAutomaticSafetyRecovery) {
