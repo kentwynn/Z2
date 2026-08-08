@@ -427,6 +427,7 @@ void loop()
     if (gVirtualPowerOn) updateMicrophone();
 
     ArduinoOTA.handle();
+    updateNetworkConnection();
     if (gWifiSetupMode) gSetupDns.processNextRequest();
     gServer.handleClient();
     updateRealtimeConversation();

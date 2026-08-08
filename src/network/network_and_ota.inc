@@ -20,6 +20,11 @@ bool connectToWifi(const String &ssid, const String &password, const char *sourc
 {
     if (ssid.isEmpty()) return false;
     WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
+    WiFi.setAutoReconnect(true);
+    // Z2 is an always-powered realtime appliance. Modem sleep can leave long-
+    // lived TLS WebSockets half-open after hours of inactivity.
+    WiFi.setSleep(false);
     WiFi.setHostname(kHostName);
     WiFi.begin(ssid.c_str(), password.c_str());
     Serial.printf("[Z2 WIFI] trying %s network \"%s\"", source, ssid.c_str());
@@ -37,6 +42,52 @@ bool connectToWifi(const String &ssid, const String &password, const char *sourc
     gWifiConnectionNote = source;
     Serial.printf(" connected at %s\n", WiFi.localIP().toString().c_str());
     return true;
+}
+
+void updateNetworkConnection()
+{
+    if (gWifiSetupMode) return;
+    static unsigned long lastCheckMs = 0;
+    static unsigned long lastBeginMs = 0;
+    static bool previouslyConnected = true;
+    const unsigned long now = millis();
+    if (WiFi.status() == WL_CONNECTED) {
+        if (!previouslyConnected) {
+            previouslyConnected = true;
+            gWifiConnectedSsid = WiFi.SSID();
+            gWifiConnectionNote = "automatic recovery";
+            Serial.printf("[Z2 WIFI] connection restored at %s\n",
+                          WiFi.localIP().toString().c_str());
+            addRealtimeLog("Wi-Fi connection restored");
+        }
+        return;
+    }
+    if (previouslyConnected) {
+        previouslyConnected = false;
+        Serial.printf("[Z2 WIFI] connection lost status=%d\n", WiFi.status());
+        addRealtimeLog("Wi-Fi connection lost · recovering");
+    }
+    if (now - lastCheckMs < 5000UL) return;
+    lastCheckMs = now;
+    WiFi.setAutoReconnect(true);
+    WiFi.setSleep(false);
+    // Let the ESP32 driver's inexpensive reconnect run first. If it remains
+    // offline, restart association from the saved consumer credentials without
+    // blocking audio/safety processing or opening setup mode.
+    if (now - lastBeginMs < 30000UL) {
+        WiFi.reconnect();
+        return;
+    }
+    const String savedSsid = gRobotPreferences.getString("wifi-ssid", "");
+    const String savedPassword = gRobotPreferences.getString("wifi-pass", "");
+    if (savedSsid.isEmpty()) return;
+    lastBeginMs = now;
+    WiFi.disconnect(false, false);
+    WiFi.mode(WIFI_STA);
+    WiFi.setHostname(kHostName);
+    WiFi.begin(savedSsid.c_str(), savedPassword.c_str());
+    Serial.printf("[Z2 WIFI] retrying saved network \"%s\"\n",
+                  savedSsid.c_str());
 }
 
 void startWifiSetupAccessPoint()
