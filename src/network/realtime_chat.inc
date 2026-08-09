@@ -559,6 +559,20 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
         gOledToolSecondary = String(display["secondary"] | "");
         gOledToolDetail = String(display["detail"] | "");
         gOledConsoleUntilMs = millis() + 15000UL;
+    } else if (!strcmp(eventType, "execution.plan")) {
+        const char *state = event["state"] | "running";
+        const char *active = event["active"] | "";
+        const int step = event["step"] | 0;
+        const int total = event["total"] | 0;
+        gOledAiTitle = "EXECUTION PLAN";
+        gOledToolPrimary = !strcmp(state, "complete")
+            ? "PLAN COMPLETE" : String("STEP ") + step + " / " + total;
+        gOledToolSecondary = active[0] ? String(active) : "SELECTING TOOLS";
+        gOledToolSecondary.replace("_", " ");
+        gOledToolSecondary.toUpperCase();
+        gOledToolDetail = !strcmp(state, "step_complete")
+            ? "STEP COMPLETE" : "AI ORCHESTRATION";
+        gOledConsoleUntilMs = millis() + (!strcmp(state, "complete") ? 2500UL : 15000UL);
     } else if (!strcmp(eventType, "wake.rejected")) {
         const char *text = event["transcript"] | "";
         addRealtimeLog(String("Wake rejected. Heard: ") +
