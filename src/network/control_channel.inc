@@ -231,6 +231,16 @@ void updateControlChannel()
             telemetry["motion_control"] = "open_loop_timed";
             telemetry["distance_control"] = false;
             telemetry["wheel_encoders"] = false;
+            JsonObject drivetrain = telemetry["drivetrain"].to<JsonObject>();
+            drivetrain["wheel_diameter_mm"] = kWheelDiameterMm;
+            drivetrain["wheel_center_spacing_mm"] = kWheelCenterSpacingMm;
+            drivetrain["rated_rpm"] = kGearMotorRatedRpm;
+            drivetrain["rated_pwm"] = kDrivetrainRatedPwm;
+            drivetrain["configured_motion_pwm"] = gAutoCruiseSpeed;
+            drivetrain["linear_cm_per_s"] = kDrivetrainLinearCmPerSecond;
+            drivetrain["angular_deg_per_s"] = kDrivetrainAngularDegPerSecond;
+            drivetrain["calibration"] = kDrivetrainUsesMeasuredCalibration
+                ? "measured" : "rated_theoretical";
             telemetry["virtual_power"] = gVirtualPowerOn;
             telemetry["safety_stop"] = gSafetyStopActive;
             telemetry["cliff_recovery"] = gCliffRecoveryActive;

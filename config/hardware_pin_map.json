@@ -33,6 +33,17 @@
       }
     }
   },
+  "drivetrain": {
+    "type": "differential_two_wheel",
+    "wheelDiameterMm": 40,
+    "wheelCenterSpacingMm": 100,
+    "gearMotorRatedRpm": 30,
+    "ratedPwm": 255,
+    "measuredLinearCmPerSecond": 1.46597,
+    "measuredAngularDegPerSecond": 12.64198,
+    "calibrationSource": "physical_test_2026-08-09_round_4",
+    "notes": "Measured values override rated calculations after a physical calibration run."
+  },
   "speakerAmplifier": {
     "type": "MAX98357A I2S",
     "LRC_WS": 4,

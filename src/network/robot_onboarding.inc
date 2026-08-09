@@ -277,10 +277,69 @@ void acknowledgeCloudCommand(const String &commandId, bool executed, String deta
 void pollRobotCommands()
 {
     if (gAiMotionStopAtMs &&
+        static_cast<int32_t>(gAiMotionStopAtMs - millis()) > 0 &&
+        (!gMoving || gCommand != gAiMotionExpectedDirection ||
+         gCliffRecoveryActive || gLocalRecoveryActive)) {
+        const unsigned long elapsedMs = millis() - gAiMotionStartedAtMs;
+        const float progress = gAiMotionDurationMs
+            ? min(1.0f, static_cast<float>(elapsedMs) / gAiMotionDurationMs)
+            : 0.0f;
+        String interruptedDetail = gAiMotionCommandDetail +
+            " interrupted by local safety · progress " +
+            String(progress * 100.0f, 0) + "%";
+        if (gAiMotionRequestedDistanceCm != 0)
+            interruptedDetail += " · estimated " +
+                String(gAiMotionRequestedDistanceCm * progress, 1) + " of " +
+                String(gAiMotionRequestedDistanceCm, 1) + " cm";
+        if (gAiMotionRequestedDegrees != 0)
+            interruptedDetail += " · estimated " +
+                String(gAiMotionRequestedDegrees * progress, 0) + " of " +
+                String(gAiMotionRequestedDegrees, 0) + " degrees";
+        gAiMotionStopAtMs = 0;
+        acknowledgeCloudCommand(gAiMotionCommandId, false, interruptedDetail);
+        addRealtimeLog(interruptedDetail);
+        gLastCloudCommandId = gAiMotionCommandId;
+        gLastCloudCommandExecuted = false;
+        gLastCloudCommandDetail = interruptedDetail;
+        gAiMotionCommandId = "";
+        gAiMotionCommandDetail = "";
+        gAiMotionExpectedDirection = 'S';
+        gAiMotionStartedAtMs = 0;
+        gAiMotionDurationMs = 0;
+        gAiMotionRequestedDistanceCm = 0;
+        gAiMotionRequestedDegrees = 0;
+    }
+    if (gAiMotionStopAtMs &&
         static_cast<int32_t>(millis() - gAiMotionStopAtMs) >= 0) {
+        const bool completedAsCommanded = gMoving &&
+            gCommand == gAiMotionExpectedDirection &&
+            !gCliffRecoveryActive && !gLocalRecoveryActive;
         gAiMotionStopAtMs = 0;
         stopMotors();
-        addRealtimeLog("AI motion deadline reached - stopped locally");
+        const String completionDetail = gAiMotionCommandDetail +
+            (completedAsCommanded ? " completed" : " interrupted before completion");
+        String terminalLog = String("AI motion ") +
+            (completedAsCommanded ? "completed: " : "interrupted: ") +
+            gAiMotionCommandDetail;
+        if (!completedAsCommanded) {
+            terminalLog += String(" · moving=") + gMoving +
+                " actual=" + gCommand + " expected=" + gAiMotionExpectedDirection +
+                " cliff=" + gCliffRecoveryActive +
+                " recovery=" + gLocalRecoveryActive;
+        }
+        addRealtimeLog(terminalLog);
+        acknowledgeCloudCommand(gAiMotionCommandId, completedAsCommanded,
+                                completionDetail);
+        gLastCloudCommandId = gAiMotionCommandId;
+        gLastCloudCommandExecuted = completedAsCommanded;
+        gLastCloudCommandDetail = completionDetail;
+        gAiMotionCommandId = "";
+        gAiMotionCommandDetail = "";
+        gAiMotionExpectedDirection = 'S';
+        gAiMotionStartedAtMs = 0;
+        gAiMotionDurationMs = 0;
+        gAiMotionRequestedDistanceCm = 0;
+        gAiMotionRequestedDegrees = 0;
         sendDeviceEvent("Safety", "AI motion stopped", "Local duration limit reached");
     }
     static unsigned long lastPollMs = 0;
@@ -351,7 +410,9 @@ void pollRobotCommands()
     const bool aiToolboxCommand = String(item["source"] | "") == "ai_toolbox";
     command.toLowerCase(); value.toUpperCase();
     const int speed = constrain(item["speed"] | 160, 70, 255);
-    const unsigned long durationMs = constrain(item["duration_ms"] | 1000, 100, 5000);
+    // Long, slow geared-motor turns are still locally bounded. Z2's measured
+    // 16 deg/s rotation needs 11.25 seconds for 180 degrees.
+    const unsigned long durationMs = constrain(item["duration_ms"] | 1000, 100, 15000);
     // Never mix a test sound into streamed TTS. Keep it queued and execute it
     // as soon as reply playback finishes; FollowUp/listening is safe now.
     if (hasRealtimeCommand && command == "sound" &&
@@ -362,6 +423,10 @@ void pollRobotCommands()
                   command.c_str(), value.c_str(), speed);
     bool executed = false;
     String detail = command + (value.isEmpty() ? "" : String(" ") + value);
+    if (!commandId.isEmpty() && commandId == gAiMotionCommandId) {
+        addRealtimeLog(String("Control in progress duplicate ignored: ") + detail);
+        return;
+    }
     if (!commandId.isEmpty() && commandId == gLastCloudCommandId) {
         addRealtimeLog(String("Control duplicate ignored: ") + detail);
         acknowledgeCloudCommand(commandId, gLastCloudCommandExecuted,
@@ -383,11 +448,30 @@ void pollRobotCommands()
             executed = true;
         }
     } else if (command == "drive" && gToolboxControlEnabled && gCapabilityMovement && value.length() == 1) {
-        if (!aiToolboxCommand) activateControlLease(false);
+        // Every physical drive owns the local control lease, including an
+        // AI-toolbox drive. Otherwise onboard VAD can begin a new voice
+        // connection during a timed turn, and beginRealtimeConnection()
+        // correctly stops the motors, truncating the active plan.
+        activateControlLease(false);
         disableAutoDrive("cloud manual drive");
         executed = applyDrive(value[0], speed);
-        if (executed && aiToolboxCommand)
+        if (executed && aiToolboxCommand) {
             gAiMotionStopAtMs = millis() + durationMs;
+            gAiMotionCommandId = commandId;
+            gAiMotionCommandDetail = detail;
+            gAiMotionExpectedDirection = value[0];
+            gAiMotionStartedAtMs = millis();
+            gAiMotionDurationMs = durationMs;
+            gAiMotionRequestedDistanceCm = item["requested_distance_cm"] | 0.0f;
+            gAiMotionRequestedDegrees = item["requested_degrees"] | 0.0f;
+            if (gAiMotionRequestedDistanceCm != 0)
+                gAiMotionCommandDetail += " · " +
+                    String(gAiMotionRequestedDistanceCm, 1) + " cm";
+            if (gAiMotionRequestedDegrees != 0)
+                gAiMotionCommandDetail += " · " +
+                    String(gAiMotionRequestedDegrees, 0) + " degrees";
+            detail += String(" started for ") + durationMs + " ms";
+        }
         if (!executed) {
             if (!gVirtualPowerOn) detail += " blocked: virtual power is off";
             else if (gCliffRecoveryActive) detail += " blocked: cliff recovery is active";
@@ -481,7 +565,15 @@ void pollRobotCommands()
         }
     }
     if (!executed && detail.indexOf("blocked") < 0) detail += " unavailable or disabled";
-    addRealtimeLog(String("Control ") + (executed ? "executed: " : "rejected: ") + detail);
+    const bool timedAiDrive = executed && aiToolboxCommand && command == "drive";
+    addRealtimeLog(String("Control ") +
+                   (timedAiDrive ? "started: " : executed ? "executed: " : "rejected: ") +
+                   detail);
+    if (timedAiDrive) {
+        // The command is terminal only after the requested motor duration has
+        // elapsed without local safety replacing or stopping the movement.
+        return;
+    }
     gLastCloudCommandId = commandId;
     gLastCloudCommandExecuted = executed;
     gLastCloudCommandDetail = detail;

@@ -473,7 +473,18 @@ void loop()
         updateAutoDrive();
         if (!gWifiSetupMode) updateRingAnimation();
         updateOled();
-        if (gMoving && millis() - gLastDriveCommandMs > kCommandTimeoutMs) {
+        // AI metric/angle motion has its own bounded local deadline. Do not let
+        // the generic held-control watchdog truncate a calibrated 360-degree
+        // turn at 1.2 seconds. Cliff/proximity safety still interrupts through
+        // the normal sensor paths, and the AI deadline is capped locally.
+        // pollRobotCommands() exclusively owns the terminal boundary for a
+        // timed AI motion. Testing whether the deadline is still in the
+        // future here creates a one-loop race: it can expire after the poll
+        // check, this watchdog stops the motors, and the next poll falsely
+        // reports an interrupted motion. Safety paths remain independent.
+        const bool boundedAiMotionPending = gAiMotionStopAtMs != 0;
+        if (gMoving && !boundedAiMotionPending &&
+            millis() - gLastDriveCommandMs > kCommandTimeoutMs) {
             stopMotors();
             Serial.println("[Z2] command timeout; motors stopped");
         }

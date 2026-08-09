@@ -116,6 +116,12 @@ void updateTofSensors()
     // stop after one noisy rear sample.
     if (gMoving && !gCliffRecoveryActive &&
         tofBlocksCommand(gCommand, blockedSensor)) {
+        if (!gEmergencyStopRequested) {
+            const char *names[] = {"front-left", "front-right", "rear"};
+            addRealtimeLog(String("Motion safety interrupt: command ") +
+                           gCommand + " · " + names[blockedSensor] + " " +
+                           gTofDistanceMm[blockedSensor] + " mm");
+        }
         gEmergencyStopRequested = true;
     }
 }

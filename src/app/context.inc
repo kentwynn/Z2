@@ -27,6 +27,7 @@ extern "C" {
 }
 
 #include "robot_config.h"
+#include "generated_hardware_profile.h"
 #include "z2_hello_audio.h"
 
 namespace
