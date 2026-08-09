@@ -69,7 +69,7 @@ bool tofBlocksCommand(char command, uint8_t &blockedSensor)
     }
     for (uint8_t index = 0; index < kTofCount; ++index) {
         if (check[index] && gTofValid[index] &&
-            gTofDistanceMm[index] <= kTofStopDistanceMm) {
+            gTofStopDebounce[index] >= 2) {
             blockedSensor = index;
             return true;
         }
@@ -103,11 +103,19 @@ void updateTofSensors()
                 : measuredMm;
         }
         gTofValid[index] = valid;
+        if (valid && gTofDistanceMm[index] <= kTofStopDistanceMm) {
+            if (gTofStopDebounce[index] < 2) ++gTofStopDebounce[index];
+        } else {
+            gTofStopDebounce[index] = 0;
+        }
     }
 
     uint8_t blockedSensor = 0;
-    if (gMoving && tofBlocksCommand(gCommand, blockedSensor)) {
+    // Cliff recovery owns its rear-path supervision. Do not let the generic
+    // movement stop path race it and turn a recoverable edge into a latched
+    // stop after one noisy rear sample.
+    if (gMoving && !gCliffRecoveryActive &&
+        tofBlocksCommand(gCommand, blockedSensor)) {
         gEmergencyStopRequested = true;
     }
 }
-

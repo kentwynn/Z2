@@ -227,6 +227,10 @@ void updateControlChannel()
             telemetry["led_ring_brightness"] = gRing.getBrightness();
             telemetry["moving"] = gMoving;
             telemetry["direction"] = String(gCommand);
+            telemetry["motor_speed_pwm"] = gMoving ? gSpeed : 0;
+            telemetry["motion_control"] = "open_loop_timed";
+            telemetry["distance_control"] = false;
+            telemetry["wheel_encoders"] = false;
             telemetry["virtual_power"] = gVirtualPowerOn;
             telemetry["safety_stop"] = gSafetyStopActive;
             telemetry["cliff_recovery"] = gCliffRecoveryActive;

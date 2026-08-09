@@ -102,7 +102,6 @@ constexpr bool kCliffSensorsEnabled = true;
 constexpr uint8_t kCliffDetectedLevel = HIGH;
 constexpr unsigned long kCliffReadIntervalMs = 10;
 constexpr uint8_t kCliffDebounceSamples = 3;
-constexpr unsigned long kCliffRecoveryMaximumMs = 1500;
 // The measured drivetrain may not overcome static friction near PWM 115.
 // Cliff recovery must produce real reverse movement immediately, so use the
 // same proven speed as local proximity recovery.
@@ -380,6 +379,7 @@ bool gTofReady[kTofCount] = {false, false, false};
 uint8_t gTofType[kTofCount] = {0, 0, 0}; // 0=unknown, 1=VL53L0X, 2=VL53L1X
 bool gTofValid[kTofCount] = {false, false, false};
 uint16_t gTofDistanceMm[kTofCount] = {0, 0, 0};
+uint8_t gTofStopDebounce[kTofCount] = {0, 0, 0};
 unsigned long gLastTofReadMs = 0;
 uint8_t gNextTofIndex = 0;
 uint8_t gSpeakerVolumePercent = 60;

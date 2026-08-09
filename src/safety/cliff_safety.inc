@@ -178,10 +178,12 @@ void updateCliffSensors()
 
     if (gCliffRecoveryActive) {
         const bool rearBlocked = gTofValid[2] &&
-            gTofDistanceMm[2] <= kTofStopDistanceMm;
-        const bool timedOut =
-            now - gCliffRecoveryStartedMs >= kCliffRecoveryMaximumMs;
-        if (!anyCliff || rearBlocked || timedOut) {
+            gTofStopDebounce[2] >= 2;
+        // Cliff recovery is feedback-controlled, not time-controlled. Keep
+        // reversing until both cliff sensors see supported floor. A valid rear
+        // hard boundary is the only condition allowed to stop recovery while
+        // a cliff remains active.
+        if (!anyCliff || rearBlocked) {
             stopMotors();
             gCliffRecoveryActive = false;
             const bool recovered = !anyCliff;
@@ -197,12 +199,9 @@ void updateCliffSensors()
             } else if (rearBlocked) {
                 notifyRecoveryBlocked(
                     "cliff active · rear became blocked");
-            } else {
-                notifyRecoveryBlocked(
-                    "cliff did not clear within bounded recovery");
             }
-            Serial.printf("[Z2 CLIFF] recovery stopped clear=%d rear=%s timeout=%d\n",
-                          recovered, rearBlocked ? "BLOCKED" : "clear", timedOut);
+            Serial.printf("[Z2 CLIFF] recovery stopped clear=%d rear=%s\n",
+                          recovered, rearBlocked ? "BLOCKED" : "clear");
         } else {
             // Keep the motor watchdog alive only while every feedback check
             // still permits the same recovery direction.
