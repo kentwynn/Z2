@@ -479,6 +479,18 @@ void handleRealtimeSocketEvent(websockets::WebsocketsEvent type, String detail)
             ? "API session closed normally"
             : "API WebSocket disconnected");
         gRealtimeExpectedClose = false;
+        if (gPhoneSessionActive) {
+            // The robot chat socket is the phone session's only audio output.
+            // If it disappears, Phone Connect cannot continue; fail open to
+            // the onboard microphone even if the control disconnect event was
+            // lost at the same time.
+            gPhoneSessionActive = false;
+            gPhonePairingVisible = false;
+            gPhonePairingUrl = "";
+            gPhonePairingUntilMs = 0;
+            resetVoiceVad();
+            addRealtimeLog("Phone output lost · onboard microphone restored");
+        }
         if (!wasExpectedClose)
             showRealtimeVoiceEvent(FaceEmotion::Worried, "ALERT", 2200UL);
         if (gRealtimeState != RealtimeChatState::WakeListening)
