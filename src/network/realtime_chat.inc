@@ -377,8 +377,11 @@ void closeRealtimeConversation(const char *reason)
 
 bool controlLeaseActive()
 {
-    return gControlLeaseUntilMs != 0 &&
-        static_cast<int32_t>(gControlLeaseUntilMs - millis()) > 0;
+    // Autonomous drive owns the robot until it is explicitly stopped or local
+    // safety disables it. A timed voice lease must never expire underneath an
+    // active autonomous run and let microphone noise cancel the motors.
+    return gAutoDriveEnabled || (gControlLeaseUntilMs != 0 &&
+        static_cast<int32_t>(gControlLeaseUntilMs - millis()) > 0);
 }
 
 void activateControlLease(bool stopping)

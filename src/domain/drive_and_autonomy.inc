@@ -99,6 +99,7 @@ const char *autoDriveStateName()
 void disableAutoDrive(const char *reason)
 {
     if (gAutoDriveEnabled) Serial.printf("[Z2 AUTO] stopped: %s\n", reason);
+    gAutoDriveStopReason = reason;
     gAutoDriveEnabled = false;
     gAutoDriveState = AutoDriveState::Off;
     stopMotors();
@@ -157,6 +158,7 @@ uint16_t autoRangeMm(uint8_t index)
 void startAutoState(AutoDriveState state)
 {
     gAutoDriveState = state;
+    if (state != AutoDriveState::Off) gAutoDriveStopReason = "";
     gAutoStateStartedMs = millis();
     Serial.printf("[Z2 AUTO] state=%s\n", autoDriveStateName());
 }

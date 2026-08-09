@@ -147,12 +147,14 @@ void updateCliffSensors()
             if (interactionPresentation.active && interactionPresentation.event == "near_presence")
                 clearPresentation(PresentationOwner::Interaction);
             requestPresentation(PresentationOwner::Safety,
-                                gPresetSafetyCliff, "cliff");
+                                gPresetSafetyCliff, "cliff",
+                                !(gAutoDriveEnabled && gAutoDriveSilent));
             Serial.printf("[Z2 CLIFF] hazard active left=%d right=%d\n",
                           gCliffDetected[0], gCliffDetected[1]);
         } else if (now - gLastCliffWarningMs >= kCliffWarningRepeatMs) {
             gLastCliffWarningMs = now;
-            if (!gCliffRecoveryActive && gCapabilitySpeaker &&
+            if (!(gAutoDriveEnabled && gAutoDriveSilent) &&
+                !gCliffRecoveryActive && gCapabilitySpeaker &&
                 gPresetSafetyCliff.sound != "OFF")
                 playSound(gPresetSafetyCliff.sound);
         }

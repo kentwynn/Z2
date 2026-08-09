@@ -228,6 +228,10 @@ void updateControlChannel()
             telemetry["moving"] = gMoving;
             telemetry["direction"] = String(gCommand);
             telemetry["motor_speed_pwm"] = gMoving ? gSpeed : 0;
+            telemetry["auto_drive"] = gAutoDriveEnabled;
+            telemetry["auto_state"] = autoDriveStateName();
+            telemetry["auto_stop_reason"] = gAutoDriveStopReason;
+            telemetry["auto_drive_silent"] = gAutoDriveSilent;
             telemetry["motion_control"] = "open_loop_timed";
             telemetry["distance_control"] = false;
             telemetry["wheel_encoders"] = false;
