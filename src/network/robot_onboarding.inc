@@ -491,7 +491,11 @@ void pollRobotCommands()
             startAutoState(AutoDriveState::Cruise);
             executed = true;
         } else {
-            detail += " blocked because power, sensors, or cliff state is unsafe";
+            if (!gVirtualPowerOn) detail += " blocked: virtual power is off";
+            else if (!autoSensorsReady()) detail += " blocked: front ToF sensors unavailable";
+            else if (gCliffDetected[0] || gCliffDetected[1])
+                detail += " blocked: cliff sensor detects an edge";
+            else detail += " blocked: local safety state is active";
         }
     } else if (command == "display" && gCapabilityDisplay) {
         if (value == "OFF") gDisplayMode = DisplayMode::Off;

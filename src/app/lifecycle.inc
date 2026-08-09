@@ -195,9 +195,9 @@ void setup()
         }
         noteDashboardActivity();
         if (!autoSensorsReady()) {
-            disableAutoDrive("cannot start; front sensor or sonar unavailable");
+            disableAutoDrive("cannot start; front ToF sensors unavailable");
             gServer.send(503, "application/json",
-                         "{\"enabled\":false,\"state\":\"OFF\",\"reason\":\"Front sensors or sonar not ready\"}");
+                         "{\"enabled\":false,\"state\":\"OFF\",\"reason\":\"Front ToF sensors not ready\"}");
             return;
         }
         if (gCliffDetected[0] || gCliffDetected[1]) {

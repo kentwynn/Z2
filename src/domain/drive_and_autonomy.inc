@@ -142,7 +142,10 @@ void setVirtualPowerState(bool turnOn, const char *reason)
 
 bool autoSensorsReady()
 {
-    return gUltrasonicValid && gTofReady[0] && gTofReady[1];
+    // An unavailable range reading contributes no restriction. Auto drive can
+    // operate from the initialized front ToF pair while a missing sonar echo
+    // remains non-authoritative; any valid close reading still stops locally.
+    return gTofReady[0] && gTofReady[1];
 }
 
 uint16_t autoRangeMm(uint8_t index)
@@ -164,7 +167,7 @@ void updateAutoDrive()
     gLastAutoDecisionMs = millis();
 
     if (!autoSensorsReady()) {
-        disableAutoDrive("front sensor or sonar unavailable");
+        disableAutoDrive("front ToF sensors unavailable");
         return;
     }
     if (gCliffDetected[0] || gCliffDetected[1] || gCliffRecoveryActive) {
@@ -178,7 +181,8 @@ void updateAutoDrive()
     const uint16_t backMm = autoRangeMm(2);
     const bool leftBlocked = leftMm < gAutoFrontClearMm;
     const bool rightBlocked = rightMm < gAutoFrontClearMm;
-    const bool centerBlocked = gLatestDistanceCm < gObstacleWarningDistanceCm;
+    const bool centerBlocked = gUltrasonicValid &&
+        gLatestDistanceCm < gObstacleWarningDistanceCm;
     const bool rearClear = gTofReady[2] && backMm >= gAutoRearClearMm;
 
     if (gAutoDriveState == AutoDriveState::Reverse) {
