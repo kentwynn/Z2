@@ -408,7 +408,9 @@ void pollRobotCommands()
     String commandId = item["id"] | "";
     String command = item["command"] | "";
     String value = item["value"] | "";
-    const bool aiToolboxCommand = String(item["source"] | "") == "ai_toolbox";
+    const String commandSource = String(item["source"] | "");
+    const bool aiToolboxCommand = commandSource == "ai_toolbox" ||
+                                  commandSource == "task_runner";
     command.toLowerCase(); value.toUpperCase();
     const int speed = constrain(item["speed"] | 160, 70, 255);
     // Long, slow geared-motor turns are still locally bounded. Z2's measured
@@ -498,7 +500,9 @@ void pollRobotCommands()
                 detail += " blocked: cliff sensor detects an edge";
             else detail += " blocked: local safety state is active";
         }
-    } else if (command == "display" && gCapabilityDisplay) {
+    } else if (command == "display" && gCapabilityDisplay &&
+               !gSafetyStopActive && !gCliffHazardActive &&
+               !gCliffRecoveryActive && !gLocalRecoveryActive) {
         if (value == "OFF") gDisplayMode = DisplayMode::Off;
         else if (value == "INFO") gDisplayMode = DisplayMode::Info;
         else if (value == "SENSORS") gDisplayMode = DisplayMode::Sensors;
@@ -506,7 +510,9 @@ void pollRobotCommands()
             gFaceEmotion = presentationEmotion(value); }
         gLastOledUpdateMs = 0;
         executed = true;
-    } else if (command == "oled_draw" && gCapabilityDisplay) {
+    } else if (command == "oled_draw" && gCapabilityDisplay &&
+               !gSafetyStopActive && !gCliffHazardActive &&
+               !gCliffRecoveryActive && !gLocalRecoveryActive) {
         gOledPrimitiveCount = 0;
         JsonArray elements = item["elements"].as<JsonArray>();
         for (JsonObject source : elements) {

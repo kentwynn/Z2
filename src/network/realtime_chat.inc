@@ -391,9 +391,6 @@ void activateControlLease(bool stopping)
         : gControlVoiceSuspendSeconds;
     const bool wasActive = controlLeaseActive();
     gControlLeaseUntilMs = millis() + static_cast<unsigned long>(seconds) * 1000UL;
-    if (gRealtimeSocket.available() ||
-        gRealtimeState != RealtimeChatState::WakeListening)
-        closeRealtimeConversation("Control owns execution");
     if (!wasActive) {
         Serial.printf("[Z2 CONTROL] voice suspended for %u seconds\n", seconds);
         addRealtimeLog(String("CONTROL_ACTIVE - voice suspended for ") + seconds + "s");
@@ -768,9 +765,15 @@ void handleRealtimeMessage(websockets::WebsocketsMessage message)
 void beginRealtimeConnection()
 {
     if (!gToolboxVoiceEnabled || !Z2_REALTIME_ENABLED || !hasConfiguredRealtimeToken() ||
-        WiFi.status() != WL_CONNECTED || controlLeaseActive()) return;
-    disableAutoDrive("voice conversation");
-    stopMotors();
+        WiFi.status() != WL_CONNECTED) return;
+    // A task may own the motors while Phone Connect uses this authenticated
+    // socket for conversation output. Keep transport online without touching
+    // the drivetrain. The onboard microphone remains suspended below while
+    // the control lease is active, preventing motor noise from becoming input.
+    if (!controlLeaseActive()) {
+        disableAutoDrive("voice conversation");
+        stopMotors();
+    }
     gRealtimeHeaders = String("X-AI-Token: ") + activeRobotToken() + "\r\n";
     gRealtimeConnectingStartedMs = millis();
     gRealtimeLastConnectAttemptMs = gRealtimeConnectingStartedMs;
@@ -918,10 +921,9 @@ void updateRealtimeConversation()
         return;
     }
     if (controlLeaseActive()) {
-        if (gRealtimeSocket.available() ||
-            gRealtimeState != RealtimeChatState::WakeListening)
-            closeRealtimeConversation("Control owns execution");
-        return;
+        // Preserve the WebSocket for Phone Connect and server events. Only
+        // local microphone capture is suspended by
+        // handleRealtimeMicrophoneFrame() during physical execution.
     }
     if (gRealtimeSessionPending) {
         gRealtimeSessionPending = false;

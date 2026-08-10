@@ -777,10 +777,11 @@ Do not call a hardware feature complete at level 2 or 3.
   executed acknowledgements.
 - Full conversations are not durable memories.
 
-## 22. Planned architecture: persistent Tasks
+## 22. Persistent Tasks
 
-Persistent Tasks are **not implemented yet**. Current Execution Plan exists
-only for one conversational turn.
+The one-time Tasks MVP is implemented in the robot-facing KentWynn API and
+Robot UI. Tasks are durable objectives that may be created through the Tasks
+page or the Tasks AI toolbox and may continue independently of voice chat.
 
 The intended separation is:
 
@@ -792,12 +793,17 @@ The intended separation is:
 - Safety — may interrupt or block a physical step but cannot be overridden by
   the task.
 - Task UI — progress, current step, evidence, pause, resume, cancel, and retry.
-- Scheduling — one-time and recurring execution in a later phase.
+- Scheduling — one-time future execution and simple daily repetition are active in the normal UI.
 
-Expected task states are `planned`, `running`, `waiting`, `paused`, `blocked`,
-`completed`, and `cancelled`. Long tasks must continue independently of the
-voice WebSocket and must never equate a model's spoken promise with completed
-physical work.
+Current task states are `ready`, `running`, `waiting`, `paused`, `completed`,
+`failed`, and `cancelled`. The runner reuses Execution Plan and existing bounded
+toolboxes, persists execution evidence in PostgreSQL, uses Redis for live state
+and runner ownership, and recovers incomplete executions after an API restart.
+It must never equate a model's spoken promise with completed physical work.
+
+The complete implementation and staged extension contract is documented in
+`TASKS_IMPLEMENTATION.md`. Camera observations and vision-triggered execution
+remain prepared architectural extensions, not currently active features.
 
 ## 23. Design principles for future changes
 
