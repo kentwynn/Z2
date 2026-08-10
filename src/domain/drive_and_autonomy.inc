@@ -73,13 +73,14 @@ bool applyDrive(char command, int speed)
     gCommand = command;
     gMoving = true;
     gLastDriveCommandMs = millis();
-    if (command == 'F') requestPresentation(PresentationOwner::Control, gPresetControlForward, "forward");
-    else if (command == 'B') requestPresentation(PresentationOwner::Control, gPresetControlReverse, "reverse");
+    const bool playControlSound = !(gAutoDriveEnabled && gAutoDriveSilent);
+    if (command == 'F') requestPresentation(PresentationOwner::Control, gPresetControlForward, "forward", playControlSound);
+    else if (command == 'B') requestPresentation(PresentationOwner::Control, gPresetControlReverse, "reverse", playControlSound);
     else if (command == 'L' || command == 'X')
-        requestPresentation(PresentationOwner::Control, gPresetControlLeft, "left");
+        requestPresentation(PresentationOwner::Control, gPresetControlLeft, "left", playControlSound);
     else if (command == 'R' || command == 'Y')
-        requestPresentation(PresentationOwner::Control, gPresetControlRight, "right");
-    else requestPresentation(PresentationOwner::Control, gPresetControlTurn, "turn");
+        requestPresentation(PresentationOwner::Control, gPresetControlRight, "right", playControlSound);
+    else requestPresentation(PresentationOwner::Control, gPresetControlTurn, "turn", playControlSound);
     Serial.printf("[Z2] command=%c speed=%d left=%d right=%d\n",
                   command, full, left, right);
     return true;
@@ -185,6 +186,7 @@ void updateAutoDrive()
     const bool rightBlocked = rightMm < gAutoFrontClearMm;
     const bool centerBlocked = gUltrasonicValid &&
         gLatestDistanceCm < gObstacleWarningDistanceCm;
+    const bool frontBlocked = centerBlocked || leftBlocked || rightBlocked;
     const bool rearClear = gTofReady[2] && backMm >= gAutoRearClearMm;
 
     if (gAutoDriveState == AutoDriveState::Reverse) {
@@ -192,7 +194,10 @@ void updateAutoDrive()
             disableAutoDrive("rear path blocked");
             return;
         }
-        if (stateAge < kAutoReverseMs) {
+        // Reverse is feedback-controlled. Keep creating clearance until every
+        // available front reading is clear; a fixed pulse is far too short for
+        // this measured low-speed drivetrain and causes cruise/turn jitter.
+        if (frontBlocked) {
             applyDrive('B', kAutoReverseSpeed);
             return;
         }
@@ -213,7 +218,7 @@ void updateAutoDrive()
         return;
     }
 
-    if (!centerBlocked && !leftBlocked && !rightBlocked) {
+    if (!frontBlocked) {
         applyDrive('F', gAutoCruiseSpeed);
         return;
     }
@@ -221,6 +226,11 @@ void updateAutoDrive()
     stopMotors();
     gCollisionWarningLatched = true;
     gAutoTurnAfterReverse = rightMm > leftMm ? 'R' : 'L';
+    if (centerBlocked) {
+        if (rearClear) startAutoState(AutoDriveState::Reverse);
+        else disableAutoDrive("center and rear paths blocked");
+        return;
+    }
     const bool chosenSideBlocked = gAutoTurnAfterReverse == 'L' ? leftBlocked : rightBlocked;
     if (!chosenSideBlocked) {
         startAutoState(gAutoTurnAfterReverse == 'L'
