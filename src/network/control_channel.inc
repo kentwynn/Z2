@@ -55,6 +55,17 @@ void sendDeviceEvent(const char *tool, const char *event, const String &detail)
 
 void handleControlMessage(websockets::WebsocketsMessage message)
 {
+    if (message.isBinary()) {
+        if (gRealtimeSpeakerActive && gRealtimeAudioBuffer) {
+            const bool firstAudio = gRealtimeReplyAudioBytes == 0;
+            gRealtimeReplyAudioBytes += message.length();
+            if (firstAudio)
+                addRealtimeLog(String("Task speaker PCM received: ") + message.length() + " bytes");
+            if (xRingbufferSend(gRealtimeAudioBuffer, message.c_str(), message.length(), 0) != pdTRUE)
+                addRealtimeLog("Task speaker PCM buffer overflow");
+        }
+        return;
+    }
     if (!message.isText()) return;
     JsonDocument event;
     if (deserializeJson(event, message.c_str(), message.length())) return;
@@ -126,6 +137,36 @@ void handleControlMessage(websockets::WebsocketsMessage message)
         return;
     }
     if (!strcmp(eventType, "device.event.ack")) return;
+    if (!strcmp(eventType, "task.speech.start")) {
+        gRealtimeReplyAudioBytes = 0;
+        gRealtimeAudioEnded = false;
+        gRealtimeSpeakerActive = true;
+        i2s_zero_dma_buffer(kSpeakerI2sPort);
+        i2s_set_clk(kSpeakerI2sPort, Z2_OUTPUT_AUDIO_SAMPLE_RATE,
+                    I2S_BITS_PER_SAMPLE_32BIT, I2S_CHANNEL_STEREO);
+        showRealtimeVoiceEvent(FaceEmotion::Focused, "PULSE", 1800UL);
+        setRealtimeState(RealtimeChatState::Speaking, "task delivery audio");
+        addRealtimeLog("Task voice delivery started");
+        return;
+    }
+    if (!strcmp(eventType, "task.speech.end")) {
+        gRealtimeAudioEnded = true;
+        JsonDocument acknowledgement;
+        acknowledgement["type"] = "task.delivery.ack";
+        acknowledgement["delivery_id"] = event["delivery_id"] | "";
+        acknowledgement["status"] = "executed";
+        String payload;
+        serializeJson(acknowledgement, payload);
+        gControlSocket.send(payload);
+        addRealtimeLog(String("Task speaker PCM complete: ") + gRealtimeReplyAudioBytes + " bytes");
+        return;
+    }
+    if (!strcmp(eventType, "task.speech.error")) {
+        gRealtimeAudioEnded = true;
+        showRealtimeVoiceEvent(FaceEmotion::Worried, "PULSE", 1800UL);
+        addRealtimeLog("Task voice delivery failed");
+        return;
+    }
     if (!strcmp(eventType, "device.command")) {
         String payload;
         serializeJson(event["command"], payload);
