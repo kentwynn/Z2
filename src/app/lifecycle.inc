@@ -446,9 +446,9 @@ void loop()
         updateUltrasonic();
         updateTofSensors();
         updateCliffSensors();
-        updateTouchReaction();
+        updateProximitySafety();
         updateLocalSafetyRecovery();
-        if (touchReactionActive()) cancelRealtimeRecordingForProximity();
+        if (gProximityHazardActive) cancelRealtimeRecordingForProximity();
         if (gEmergencyStopRequested) {
             gEmergencyStopRequested = false;
             const float stoppedAtCm = gDistanceCm;

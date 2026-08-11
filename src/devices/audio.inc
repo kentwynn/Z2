@@ -54,7 +54,7 @@ void updateMicrophone()
 
     // Handling exposed hardware is a safety condition. Do not interpret
     // chassis/wire contact noise as a wake utterance while caution is active.
-    if (touchReactionActive()) {
+    if (gProximityHazardActive) {
         gVoiceDetected = false;
         gVoiceAttackFrames = 0;
         gLastVoiceMs = 0;

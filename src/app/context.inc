@@ -68,11 +68,6 @@ constexpr uint8_t kTrafficYellowPin = 16;
 constexpr uint8_t kTrafficRedPin = 17;
 constexpr float kObstacleWarningDistanceCm = 25.0f;
 constexpr uint16_t kTofWarningDistanceMm = 250;
-// The stationary personality reaction should require a deliberate near touch;
-// collision protection below remains at the wider 10 cm emergency threshold.
-constexpr float kTouchReactionDistanceCm = 6.0f;
-constexpr uint16_t kTouchReactionDistanceMm = 60;
-constexpr unsigned long kTouchReactionHoldMs = 2500;
 
 constexpr uint8_t kOledSclPin = 42;
 constexpr uint8_t kOledSdaPin = 47;
@@ -84,14 +79,18 @@ constexpr uint8_t kUltrasonicEchoPin = 40;
 constexpr uint32_t kUltrasonicEchoTimeoutUs = 30000;
 constexpr unsigned long kUltrasonicReadIntervalMs = 180;
 constexpr unsigned long kUltrasonicStaleMs = 1800;
-constexpr float kEmergencyStopDistanceCm = 10.0f;
-constexpr float kEmergencyResetDistanceCm = 14.0f;
+// Keep a conservative chassis-sized boundary around Z2. Ten centimetres left
+// too little room for sensor filtering plus drivetrain coast, even at the
+// current low motor speed. Recovery remains latched until 25 cm so readings
+// around the stop boundary cannot chatter between safe and unsafe states.
+constexpr float kEmergencyStopDistanceCm = kSafetyProximityStopMm / 10.0f;
+constexpr float kEmergencyResetDistanceCm = kSafetyProximityResetMm / 10.0f;
 constexpr uint8_t kTofCount = 3;
 constexpr uint8_t kTofXshutPins[kTofCount] = {2, 39, 1};
 constexpr uint8_t kTofAddresses[kTofCount] = {0x30, 0x31, 0x32};
 constexpr unsigned long kTofReadIntervalMs = 25;
-constexpr uint16_t kTofStopDistanceMm = 100;
-constexpr uint16_t kTofResetDistanceMm = 140;
+constexpr uint16_t kTofStopDistanceMm = kSafetyProximityStopMm;
+constexpr uint16_t kTofResetDistanceMm = kSafetyProximityResetMm;
 constexpr uint8_t kCliffLeftPin = 45;
 constexpr uint8_t kCliffRightPin = 48;
 // GPIO35-37 are reserved by octal PSRAM on the N16R8 module. The cliff sensor
@@ -175,8 +174,6 @@ PresentationPreset gPresetSafetyObstacle{"ALERT", "BEEP", "ALERT"};
 PresentationPreset gPresetSafetyProximity{"ALERT", "BEEP", "ALERT"};
 PresentationPreset gPresetSystemConnecting{"ALERT", "BEEP", "ALERT"};
 PresentationPreset gPresetSystemError{"ALERT", "BEEP", "ALERT"};
-// Legacy config name; shares the one contact-safety presentation.
-PresentationPreset gPresetInteractionTouch{"ALERT", "BEEP", "ALERT"};
 String gFaceAnimation = "IDLE";
 // Fail closed until a successfully authenticated API configuration is loaded.
 bool gToolboxControlEnabled = false;
@@ -364,8 +361,7 @@ unsigned long gLastRecoveryBlockedNoticeMs = 0;
 unsigned long gTrafficLightStartedMs = 0;
 unsigned long gTrafficLightOverrideUntilMs = 0;
 String gTrafficLightOverride = "AUTO";
-unsigned long gLastTouchReactionMs = 0;
-bool gTouchContactActive = false;
+bool gProximityHazardActive = false;
 bool gCliffDetected[2] = {false, false};
 bool gCliffRawHigh[2] = {false, false};
 uint8_t gCliffDebounce[2] = {0, 0};

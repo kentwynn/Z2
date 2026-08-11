@@ -11,12 +11,6 @@ bool directionalWarningForCommand(char command)
     return false;
 }
 
-bool touchReactionActive()
-{
-    return !gMoving && gLastTouchReactionMs != 0 &&
-        millis() - gLastTouchReactionMs <= kTouchReactionHoldMs;
-}
-
 bool immediateObstacleHazardActive()
 {
     return (gUltrasonicValid &&
@@ -26,84 +20,59 @@ bool immediateObstacleHazardActive()
         (gTofValid[2] && gTofDistanceMm[2] <= kTofStopDistanceMm);
 }
 
-void updateTouchReaction()
+void updateProximitySafety()
 {
-    // Cliff danger is exclusive. Do not queue a lower-priority contact
-    // reaction that could appear or sound immediately after the cliff clears.
+    // Cliff danger has higher authority than proximity recovery.
     if (gCliffHazardActive || gCliffRecoveryActive) {
-        gTouchContactActive = false;
-        gLastTouchReactionMs = 0;
-        auto &interactionPresentation =
-            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
-        if (interactionPresentation.active && interactionPresentation.event == "near_presence")
-            clearPresentation(PresentationOwner::Interaction);
+        gProximityHazardActive = false;
         return;
     }
     if (gMoving) return;
-    const bool frontClose =
-        (gUltrasonicValid && gLatestDistanceCm <= kTouchReactionDistanceCm) ||
-        (gTofValid[0] && gTofDistanceMm[0] <= kTouchReactionDistanceMm) ||
-        (gTofValid[1] && gTofDistanceMm[1] <= kTouchReactionDistanceMm);
-    const bool rearClose = gTofValid[2] &&
-        gTofDistanceMm[2] <= kTouchReactionDistanceMm;
-    const bool veryClose = frontClose || rearClose;
-    if (veryClose) {
-        const unsigned long now = millis();
-        const bool firstContact = !gTouchContactActive;
-        gLastTouchReactionMs = now;
-        gTouchContactActive = true;
-        auto &interactionPresentation =
-            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
-        if (firstContact &&
-            (!interactionPresentation.active || interactionPresentation.event == "near_presence"))
-            requestPresentation(PresentationOwner::Interaction,
-                                gPresetInteractionTouch, "near_presence");
-        if (firstContact && gAutomaticSafetyRecovery) {
-            gSafetyStopActive = true;
-            requestPresentation(PresentationOwner::Safety,
-                                gPresetSafetyObstacle, "obstacle", false);
-            // An interrupted forward command chooses reverse; an interrupted
-            // reverse command chooses forward. When both sides are close,
-            // prefer neither blindly: the candidate validation will reject it.
-            const char approachedFrom = rearClose && !frontClose ? 'B' : 'F';
-            tryStartLocalSafetyRecovery(approachedFrom,
-                                        frontClose && rearClose
-                                            ? "front and rear proximity"
-                                            : frontClose ? "front proximity"
-                                                         : "rear proximity");
+    const bool frontHazard =
+        (gUltrasonicValid && gLatestDistanceCm <= kEmergencyStopDistanceCm) ||
+        (gTofValid[0] && gTofDistanceMm[0] <= kTofStopDistanceMm) ||
+        (gTofValid[1] && gTofDistanceMm[1] <= kTofStopDistanceMm);
+    const bool rearHazard = gTofValid[2] &&
+        gTofDistanceMm[2] <= kTofStopDistanceMm;
+    const bool proximityHazard = frontHazard || rearHazard;
+    const bool proximityClear =
+        (!gUltrasonicValid || gLatestDistanceCm > kEmergencyResetDistanceCm) &&
+        (!gTofValid[0] || gTofDistanceMm[0] > kTofResetDistanceMm) &&
+        (!gTofValid[1] || gTofDistanceMm[1] > kTofResetDistanceMm) &&
+        (!gTofValid[2] || gTofDistanceMm[2] > kTofResetDistanceMm);
+
+    if (proximityHazard && !gProximityHazardActive) {
+        gProximityHazardActive = true;
+        gSafetyStopActive = true;
+        requestPresentation(PresentationOwner::Safety,
+                            gPresetSafetyObstacle, "obstacle", false);
+        if (gAutomaticSafetyRecovery) {
+            const char approachedFrom = rearHazard && !frontHazard ? 'B' : 'F';
+            tryStartLocalSafetyRecovery(
+                approachedFrom,
+                frontHazard && rearHazard
+                    ? "front and rear distance boundary"
+                    : frontHazard ? "front distance boundary"
+                                  : "rear distance boundary");
         }
-    } else if (gTouchContactActive &&
-               ((!gLocalRecoveryActive && gLocalRecoveryAttempted) ||
-                millis() - gLastTouchReactionMs > kTouchReactionHoldMs)) {
-        gTouchContactActive = false;
-        auto &interactionPresentation =
-            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
-        if (interactionPresentation.active && interactionPresentation.event == "near_presence")
-            clearPresentation(PresentationOwner::Interaction);
-        // A new deliberate proximity incident must be evaluated again even
-        // when an unrelated direction remains blocked. The candidate planner
-        // will still refuse every uncertified escape path.
-        if (!gLocalRecoveryActive) {
-            gLocalRecoveryAttempted = false;
-            gLastRecoveryBlockedNoticeMs = 0;
-        }
-        const bool immediateHazard = immediateObstacleHazardActive();
-        if (!gCliffHazardActive && !immediateHazard) {
-            gSafetyStopActive = false;
-            auto &safetyPresentation =
-                gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
-            if (safetyPresentation.active && safetyPresentation.event == "obstacle")
-                clearPresentation(PresentationOwner::Safety);
-        }
+    } else if (gProximityHazardActive && proximityClear &&
+               !gLocalRecoveryActive) {
+        gProximityHazardActive = false;
+        gLocalRecoveryAttempted = false;
+        gLastRecoveryBlockedNoticeMs = 0;
+        gSafetyStopActive = false;
+        auto &safetyPresentation =
+            gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
+        if (safetyPresentation.active && safetyPresentation.event == "obstacle")
+            clearPresentation(PresentationOwner::Safety);
     }
 
-    // Reconcile a previously blocked recovery continuously. The contact edge
-    // may already have been consumed while another sensor was still inside
-    // its hard boundary; once that boundary clears, do not leave yellow and
-    // the motor lock latched indefinitely.
+    // Reconcile a previously blocked recovery once the source-of-truth reset
+    // boundary is clear. Never leave a stopped robot showing an active hazard.
     if (gSafetyStopActive && !gCliffHazardActive &&
         !gCliffRecoveryActive && !gLocalRecoveryActive &&
-        !veryClose && !immediateObstacleHazardActive()) {
+        !gProximityHazardActive &&
+        !immediateObstacleHazardActive()) {
         gSafetyStopActive = false;
         gLocalRecoveryAttempted = false;
         gLastRecoveryBlockedNoticeMs = 0;
@@ -140,12 +109,6 @@ void updateCliffSensors()
         if (!gCliffHazardActive) {
             gCliffHazardActive = true;
             gLastCliffWarningMs = now;
-            gTouchContactActive = false;
-            gLastTouchReactionMs = 0;
-            auto &interactionPresentation =
-                gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
-            if (interactionPresentation.active && interactionPresentation.event == "near_presence")
-                clearPresentation(PresentationOwner::Interaction);
             requestPresentation(PresentationOwner::Safety,
                                 gPresetSafetyCliff, "cliff",
                                 !(gAutoDriveEnabled && gAutoDriveSilent));

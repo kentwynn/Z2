@@ -150,7 +150,6 @@ bool syncManagedRobotConfig()
             loadPreset(presentation["safety_proximity"].as<JsonObject>(), gPresetSafetyProximity);
             loadPreset(presentation["system_connecting"].as<JsonObject>(), gPresetSystemConnecting);
             loadPreset(presentation["system_error"].as<JsonObject>(), gPresetSystemError);
-            loadPreset(presentation["interaction_touch"].as<JsonObject>(), gPresetInteractionTouch);
             gReverseSound = gPresetControlReverse.sound;
             gCollisionSound = gPresetSafetyObstacle.sound;
             requestPresentation(PresentationOwner::Idle, gPresetIdle, "idle", false);
@@ -225,9 +224,9 @@ void pollManagedRobotConfig()
     }
     if (gRobotConfigChanged) {
         addRealtimeLog(String("Config v") + gManagedConfigVersion +
-                       " contact=" + gPresetInteractionTouch.oled + "/" +
-                       gPresetInteractionTouch.animation + "/" +
-                       gPresetInteractionTouch.sound + " cliff=" +
+                       " proximity=" + gPresetSafetyProximity.oled + "/" +
+                       gPresetSafetyProximity.animation + "/" +
+                       gPresetSafetyProximity.sound + " cliff=" +
                        gPresetSafetyCliff.oled + "/" +
                        gPresetSafetyCliff.animation + "/" +
                        gPresetSafetyCliff.sound);

@@ -264,7 +264,7 @@ void drawSensorInfo()
         if (gTofValid[2]) gDisplay.printf("Back     %4u mm", gTofDistanceMm[2]);
         else gDisplay.print(gTofReady[2] ? "Back     OUT RANGE" : "Back     INIT FAIL");
         gDisplay.setCursor(0, 57);
-        gDisplay.print("STOP <= 100 mm");
+        gDisplay.print("STOP <= 200 mm");
     } else {
         gDisplay.setTextSize(1);
         gDisplay.setCursor(0, 0);

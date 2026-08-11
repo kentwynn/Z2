@@ -44,6 +44,11 @@
     "calibrationSource": "physical_test_2026-08-09_round_4",
     "notes": "Measured values override rated calculations after a physical calibration run."
   },
+  "safety": {
+    "proximityStopMm": 200,
+    "proximityResetMm": 250,
+    "description": "Mandatory local boundary for front sonar and all ToF sensors; recovery remains latched until reset clearance."
+  },
   "speakerAmplifier": {
     "type": "MAX98357A I2S",
     "LRC_WS": 4,

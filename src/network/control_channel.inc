@@ -251,6 +251,10 @@ void updateControlChannel()
             telemetry["automatic_safety_recovery"] = gAutomaticSafetyRecovery;
             telemetry["local_recovery_active"] = gLocalRecoveryActive;
             telemetry["local_recovery_attempted"] = gLocalRecoveryAttempted;
+            JsonObject safety = telemetry["safety_profile"].to<JsonObject>();
+            safety["proximity_stop_mm"] = kSafetyProximityStopMm;
+            safety["proximity_reset_mm"] = kSafetyProximityResetMm;
+            safety["source"] = "hardware_profile";
             JsonObject capabilities = telemetry["capabilities"].to<JsonObject>();
             capabilities["movement"] = gCapabilityMovement && gToolboxControlEnabled;
             capabilities["autonomous_drive"] = gCapabilityAutonomousDrive;

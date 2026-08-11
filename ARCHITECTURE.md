@@ -253,8 +253,8 @@ Safety is firmware-owned and independent of the cloud.
 
 | Purpose | Stop / trigger | Reset / clear |
 |---|---:|---:|
-| Ultrasonic emergency boundary | 10 cm | 14 cm |
-| ToF emergency boundary | 100 mm | 140 mm |
+| Ultrasonic emergency boundary | 20 cm | 25 cm |
+| ToF emergency boundary | 200 mm | 250 mm |
 | General warning | 25 cm / 250 mm | Configuration dependent |
 | Stationary near-contact reaction | 6 cm / 60 mm | Short hold and clear logic |
 | Cliff sampling | every 10 ms | 3-sample debounce, 300 ms supported-floor re-arm |

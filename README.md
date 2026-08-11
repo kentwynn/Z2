@@ -63,8 +63,8 @@ the pinned certificate expires or whenever the API certificate rotates.
 - VEML7700 ambient-light sensing on the shared I2C bus
 - Automatic LED-ring color and brightness based on ambient lux
 - HY-SRF05 live distance sensing and health status
-- 10 cm ultrasonic movement lockout and emergency stop with audible warning; reverse remains available
-- Three mixed VL53L0X/VL53L1X directional sensors with independent health, range, and 10 cm movement lockouts
+- 20 cm ultrasonic movement lockout and emergency stop with audible warning; reverse remains available
+- Three mixed VL53L0X/VL53L1X directional sensors with independent health, range, and 20 cm movement lockouts
 - Two TCRT-5000 cliff sensors with yellow warning and guarded automatic reverse recovery
 - Opt-in Auto Drive with conservative cruising, clearer-side turning, guarded reversing, and manual Stop override
 - Manual All On/All Off virtual power control; Z2 stays on until explicitly turned off

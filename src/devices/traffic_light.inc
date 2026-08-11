@@ -15,8 +15,6 @@ void updateTrafficLight()
         // If recovery has stopped while a hazard remains, show an unambiguous
         // red stop. Never leave yellow active when the motors are stopped.
         setTrafficLight(true, false, false);
-    } else if (touchReactionActive()) {
-        setTrafficLight(true, false, false);
     } else if (gTrafficLightOverride != "AUTO" &&
                static_cast<long>(gTrafficLightOverrideUntilMs - now) > 0) {
         setTrafficLight(gTrafficLightOverride == "RED",

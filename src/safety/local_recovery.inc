@@ -1,10 +1,5 @@
 constexpr unsigned long kLocalRecoveryDurationMs = 320;
 constexpr unsigned long kLocalRecoveryPivotDurationMs = 220;
-// A person or moving object can follow the robot and keep a proximity reading
-// inside the reset boundary forever. Recovery is therefore closed-loop but
-// bounded: stop earlier when clear, or stop after this short escape budget and
-// remain visibly blocked until the hazard is removed.
-constexpr unsigned long kLocalRecoveryMaximumMs = 900;
 // Stay below normal cruise speed (180), but above the measured low-speed
 // region where the drivetrain may not overcome static friction.
 constexpr int kLocalRecoverySpeed = 150;
@@ -253,7 +248,13 @@ void updateLocalSafetyRecovery()
     if (!recoveryDirectionClear(gLocalRecoveryCommand)) {
         stopMotors();
         gLocalRecoveryActive = false;
-        notifyRecoveryBlocked("escape path became unsafe");
+        // A newly occupied direction does not end safety recovery. Re-plan
+        // from the complete current sensor state and continue through another
+        // verified-clear direction. If none exists, tryStart... owns the
+        // stopped/red blocked result and diagnostic.
+        gLocalRecoveryAttempted = false;
+        tryStartLocalSafetyRecovery(gLocalRecoveryCommand,
+                                    "escape path changed");
         return;
     }
     const unsigned long elapsed = millis() - gLocalRecoveryStartedMs;
@@ -269,14 +270,10 @@ void updateLocalSafetyRecovery()
         (gLocalRecoveryCommand == 'L' || gLocalRecoveryCommand == 'R')
             ? kLocalRecoveryPivotDurationMs : kLocalRecoveryDurationMs;
     if (elapsed < duration) return;
-    // Closed-loop avoidance continues only within a bounded escape budget.
-    // Direction validity above is re-evaluated every loop, so a new boundary
-    // or cliff still stops immediately.
+    // Continue until the triggering boundary reaches the source-of-truth reset
+    // clearance. Z2's calibrated drivetrain is intentionally slow, so a fixed
+    // sub-second pulse cannot create a meaningful safety distance.
     if (localRecoveryTriggerStillActive(gLocalRecoveryCommand)) {
-        if (elapsed < kLocalRecoveryMaximumMs) return;
-        stopMotors();
-        gLocalRecoveryActive = false;
-        notifyRecoveryBlocked("bounded escape complete · hazard still present");
         return;
     }
 
@@ -285,17 +282,10 @@ void updateLocalSafetyRecovery()
     gSafetyStopActive = false;
     gLocalRecoveryAttempted = false;
     gLastRecoveryBlockedNoticeMs = 0;
-    gTouchContactActive = false;
-    gLastTouchReactionMs = 0;
     auto &safetyPresentation =
         gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Safety)];
     if (safetyPresentation.active && safetyPresentation.event == "obstacle")
         clearPresentation(PresentationOwner::Safety);
-    auto &interactionPresentation =
-        gPresentationSlots[static_cast<uint8_t>(PresentationOwner::Interaction)];
-    if (interactionPresentation.active &&
-        interactionPresentation.event == "near_presence")
-        clearPresentation(PresentationOwner::Interaction);
     sendDeviceEvent("Safety", "Recovery completed",
                     "local hazard cleared");
     addRealtimeLog("Local safety recovery completed · hazard cleared");

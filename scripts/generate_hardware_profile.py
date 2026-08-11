@@ -9,13 +9,19 @@ project_dir = Path(env.subst("$PROJECT_DIR"))
 source_path = project_dir / "config" / "hardware_pin_map.json"
 output_path = project_dir / "include" / "generated_hardware_profile.h"
 
-profile = json.loads(source_path.read_text())["drivetrain"]
+document = json.loads(source_path.read_text())
+profile = document["drivetrain"]
+safety = document["safety"]
 wheel_mm = float(profile["wheelDiameterMm"])
 track_mm = float(profile["wheelCenterSpacingMm"])
 rpm = float(profile["gearMotorRatedRpm"])
 rated_pwm = int(profile["ratedPwm"])
 if wheel_mm <= 0 or track_mm <= 0 or rpm <= 0 or not 1 <= rated_pwm <= 255:
     raise RuntimeError("Invalid drivetrain values in config/hardware_pin_map.json")
+proximity_stop_mm = int(safety["proximityStopMm"])
+proximity_reset_mm = int(safety["proximityResetMm"])
+if proximity_stop_mm < 50 or proximity_reset_mm <= proximity_stop_mm:
+    raise RuntimeError("Invalid safety values in config/hardware_pin_map.json")
 
 theoretical_linear_cm_s = math.pi * (wheel_mm / 10.0) * rpm / 60.0
 theoretical_angular_deg_s = math.degrees(
@@ -33,6 +39,8 @@ constexpr uint8_t kDrivetrainRatedPwm = {rated_pwm};
 constexpr float kDrivetrainLinearCmPerSecond = {linear_cm_s:.6f}f;
 constexpr float kDrivetrainAngularDegPerSecond = {angular_deg_s:.6f}f;
 constexpr bool kDrivetrainUsesMeasuredCalibration = {'true' if profile.get('measuredLinearCmPerSecond') and profile.get('measuredAngularDegPerSecond') else 'false'};
+constexpr uint16_t kSafetyProximityStopMm = {proximity_stop_mm};
+constexpr uint16_t kSafetyProximityResetMm = {proximity_reset_mm};
 """
 if not output_path.exists() or output_path.read_text() != generated:
     output_path.write_text(generated)
