@@ -105,18 +105,33 @@ void interruptRealtimePlaybackForSafety()
 
 void realtimePlaybackTask(void *)
 {
-    constexpr size_t kPlaybackPrebufferBytes = 12000; // 250 ms at 24 kHz PCM16
+    // Buffer once before playback, then drain continuously.  The old code
+    // reapplied its 250 ms threshold after every 4096-byte write, creating a
+    // stop/start cadence even when audio was arriving normally.
+    constexpr size_t kPlaybackInitialBufferBytes = 36000; // 750 ms PCM16
+    constexpr size_t kPlaybackRebufferBytes = 24000;      // 500 ms PCM16
+    bool playbackPrimed = false;
+    bool recoveringUnderflow = false;
     for (;;) {
         if (!gRealtimeSpeakerActive || !gRealtimeAudioBuffer) {
+            playbackPrimed = false;
+            recoveringUnderflow = false;
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 
         const size_t buffered = gRealtimeAudioBufferCapacity -
             xRingbufferGetCurFreeSize(gRealtimeAudioBuffer);
-        if (buffered < kPlaybackPrebufferBytes && !gRealtimeAudioEnded) {
+        const size_t target = recoveringUnderflow
+            ? kPlaybackRebufferBytes
+            : kPlaybackInitialBufferBytes;
+        if (!playbackPrimed && buffered < target && !gRealtimeAudioEnded) {
             vTaskDelay(pdMS_TO_TICKS(5));
             continue;
+        }
+        if (!playbackPrimed) {
+            playbackPrimed = true;
+            recoveringUnderflow = false;
         }
 
         size_t received = 0;
@@ -125,6 +140,16 @@ void realtimePlaybackTask(void *)
         if (item && received) {
             playRealtimePcm(static_cast<const uint8_t *>(item), received);
             vRingbufferReturnItem(gRealtimeAudioBuffer, item);
+            continue;
+        }
+
+        if (!gRealtimeAudioEnded) {
+            // Do not feed tiny late chunks directly to I2S. Pause once and
+            // rebuild a useful cushion so recovery is clean rather than
+            // producing repeated broken syllables.
+            playbackPrimed = false;
+            recoveringUnderflow = true;
+            addRealtimeLog("Speaker stream underrun - rebuffering");
             continue;
         }
 
