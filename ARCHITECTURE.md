@@ -684,8 +684,8 @@ phone/session state and pending writes.
 | Surface | Purpose |
 |---|---|
 | `http://z2-001.local/` | Local maintenance, Wi-Fi recovery, hardware control, diagnostics, OTA readiness |
-| `https://robot.kentwynn.com/robots` | Account robot inventory and online state |
-| `https://robot.kentwynn.com/robots/<id>` | Robot configuration and status |
+| `https://zautobot.com/robots` | Account robot inventory and online state |
+| `https://zautobot.com/robots/<id>` | Robot configuration and status |
 | `.../ai-chat` | Voice personality, wake, language, voice, and chat settings |
 | `.../ai-tools` | Toolbox registry, live values, and OLED previews |
 | `.../people-memory` | Person profiles, memories, and relationships |
