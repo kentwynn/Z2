@@ -19,6 +19,7 @@ const char kControlPage[] PROGMEM = R"HTML(
 @media(max-width:700px){.page{padding:0 14px 28px}.nav{height:62px}.hero{min-height:0;padding:42px 0 30px;grid-template-columns:1fr}.hero h1{font-size:57px}.robot-card{max-width:none}.main-grid{display:block}.rail{display:none}.content{padding:0}.health-grid{grid-template-columns:repeat(2,1fr)}.voice-overview{grid-template-columns:1fr}.voice-stat+.voice-stat{border-left:0;border-top:1px solid var(--line)}.two-column{grid-template-columns:1fr}.section{padding:28px 0 36px}.logline{grid-template-columns:52px 1fr}.footer{display:block;line-height:2}.nav-link{padding:0 10px}}
 .rail a.active{background:transparent;color:var(--text);font-weight:700}
 .machine-identity{display:flex;align-items:baseline;gap:.16em}.machine-identity i{font-size:.34em;font-style:normal;font-weight:400;color:var(--muted);letter-spacing:0}.machine-identity span:last-child{font-variant-numeric:tabular-nums;letter-spacing:-.04em}
+.theme-cycle{width:38px;height:38px;padding:0;border:1px solid var(--line);background:transparent;color:var(--text);font:700 11px inherit;cursor:pointer}.theme-cycle:hover{background:var(--text);color:var(--inverse);border-color:var(--text)}
 </style>
 </head>
 <body>
@@ -27,7 +28,7 @@ const char kControlPage[] PROGMEM = R"HTML(
     <div class="wordmark" aria-label="zautobot">zautobot</div>
     <div class="nav-right">
       <a class="nav-link" href="https://robot.kentwynn.com/robots" target="_blank" rel="noopener">ACCOUNT ↗</a>
-      <button id="themeButton" class="icon-button" onclick="toggleTheme()" aria-label="Switch color theme">○</button>
+      <button id="themeCycle" class="theme-cycle" type="button" onclick="cycleTheme()" aria-label="Theme: System" title="Theme: System">A</button>
     </div>
   </nav>
 
@@ -90,9 +91,11 @@ const char kControlPage[] PROGMEM = R"HTML(
 </div>
 <script>
 const $=s=>document.querySelector(s),connection=$('#connection');
-const preferred=localStorage.getItem('zautobot-theme')||(matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');
-function setTheme(theme){document.documentElement.dataset.theme=theme;document.querySelector('meta[name="theme-color"]').content=theme==='dark'?'#050505':'#f7f7f5';$('#themeButton').textContent=theme==='dark'?'○':'●';$('#themeButton').setAttribute('aria-label','Switch to '+(theme==='dark'?'light':'dark')+' mode')}
-function toggleTheme(){const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';localStorage.setItem('zautobot-theme',theme);setTheme(theme)}setTheme(preferred);
+const themeMedia=matchMedia('(prefers-color-scheme:dark)'),themePreference=localStorage.getItem('zautobot-theme')||'system';
+function applyTheme(preference){const theme=preference==='system'?(themeMedia.matches?'dark':'light'):preference,button=$('#themeCycle'),labels={system:['A','System'],light:['☼','Light'],dark:['☾','Dark']};document.documentElement.dataset.theme=theme;document.querySelector('meta[name="theme-color"]').content=theme==='dark'?'#050505':'#f7f7f5';button.textContent=labels[preference][0];button.setAttribute('aria-label','Theme: '+labels[preference][1]+'. Select next theme');button.title='Theme: '+labels[preference][1]}
+function setThemePreference(preference){localStorage.setItem('zautobot-theme',preference);applyTheme(preference)}
+function cycleTheme(){const order=['system','light','dark'],current=localStorage.getItem('zautobot-theme')||'system';setThemePreference(order[(order.indexOf(current)+1)%order.length])}
+themeMedia.addEventListener('change',()=>{if((localStorage.getItem('zautobot-theme')||'system')==='system')applyTheme('system')});applyTheme(themePreference);
 const indexLinks=[...document.querySelectorAll('.rail a')];
 indexLinks.forEach(link=>link.addEventListener('click',event=>{event.preventDefault();document.querySelector(link.getAttribute('href')).scrollIntoView({behavior:'smooth',block:'start'})}));
 const sectionObserver=new IntersectionObserver(entries=>{const visible=entries.filter(entry=>entry.isIntersecting).sort((a,b)=>b.intersectionRatio-a.intersectionRatio)[0];if(!visible)return;indexLinks.forEach(link=>{const active=link.getAttribute('href')==='#'+visible.target.id;link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','location');else link.removeAttribute('aria-current')})},{rootMargin:'-12% 0px -62% 0px',threshold:[0,.15,.35]});
